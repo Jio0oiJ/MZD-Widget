@@ -8,8 +8,8 @@
 
 | 构建 | 文件 | 大小 | SHA256 |
 |---|---|---|---|
-| Debug | [`MZD-Widget-v1.5-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.5/MZD-Widget-v1.5-debug.apk) | 420,443 B | `cda91f3af6f7ddf97b65b710f2c0fb306eec89d9074d550817d7c75218bf71fc` |
-| Release | [`MZD-Widget-v1.5-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.5/MZD-Widget-v1.5-release.apk) | 386,402 B | `89801c5768b30fc185c172f66765cd5e690358fa4e77ad1ac1e4aa6001be33ba` |
+| Debug | [`MZD-Widget-v1.5-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.5/MZD-Widget-v1.5-debug.apk) | 420,495 B | `cf50e1503e56d26788d44c8e70c18c4a705dca87c529f7b35a0ddebfe76edaf9` |
+| Release | [`MZD-Widget-v1.5-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.5/MZD-Widget-v1.5-release.apk) | 386,466 B | `66cc600ceb5203924aff09c86af680d00269b40acd611a971c88b96714bba4b2` |
 
 [全部 Release](https://github.com/Jio0oiJ/MZD-Widget/releases) ｜ 两包同一签名，**可直接覆盖安装**，无需卸载；Release 体积更小，日常推荐。
 
