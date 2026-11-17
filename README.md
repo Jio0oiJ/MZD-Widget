@@ -2,14 +2,14 @@
 
 马自达远程控车的简洁 Android 桌面小组件。Java 编写、零第三方依赖，协议静态逆向自官方《MZD手机控车》App，**仅限本人账号与车辆使用**。
 
-当前版本 **v1.1** · 主界面顶部显示版本号 · [更新日志](#版本)
+当前版本 **v1.2** · 主界面顶部显示版本号 · [更新日志](#版本)
 
 ## 下载
 
 | 构建 | 文件 | 大小 | SHA256 |
 |---|---|---|---|
-| Debug | [`MZD-Widget-v1.1-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.1/MZD-Widget-v1.1-debug.apk) | 614,501 B | `be741cfcb63f486443922de918adb19b742ddc43e2acf1a0b0a110e16a066396` |
-| Release | [`MZD-Widget-v1.1-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.1/MZD-Widget-v1.1-release.apk) | 379,172 B | `793a05b1e6a7eacbb170f2f6689789ad040bda8eae9b45d16760b8502be3364f` |
+| Debug | [`MZD-Widget-v1.2-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.2/MZD-Widget-v1.2-debug.apk) | 415,647 B | `e3d8b06250547946a7bb8c81e3655a2337b7256f3f30afd0bdb688f453386f21` |
+| Release | [`MZD-Widget-v1.2-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.2/MZD-Widget-v1.2-release.apk) | 382,402 B | `4e8aaba65a1ef22e3a4d7ae80593706b841642385658309029bdf43bba214ca2` |
 
 [全部 Release](https://github.com/Jio0oiJ/MZD-Widget/releases) ｜ 两包同一签名，**可直接覆盖安装**，无需卸载；Release 体积更小，日常推荐。
 
@@ -49,6 +49,17 @@
 - **任意两条 BLE 控车指令之间至少间隔 10 秒**（解锁与上锁共用同一窗口）；窗口未过时动作只是延后、不会丢失。此窗口不限制桌面按钮的手动操作。
 - 后台扫描用前台服务实现，通知栏有常驻通知；开机 / App 更新后自动恢复。
 
+## 小米 / MIUI 桌面图标
+
+v1.2 已把图标路径收敛为**单一各密度 PNG**：去掉 adaptive-icon / roundIcon / foreground 分支，图标改成整幅不透明真彩色 PNG，且 Release 关闭资源名混淆（包内保留 `ic_launcher.png` 原名）。`aapt` 确认 `ApplicationInfo.icon` 直接指向 `res/mipmap-*/ic_launcher.png`。
+
+若桌面仍显示旧图标或安卓机器人，多为 **MIUI 桌面图标缓存**（旧包用的正是机器人模板），按序尝试：
+
+1. **长按桌面图标 → 移除**（只删快捷方式，不会卸载 App）→ 从应用抽屉重新拖到桌面。
+2. 设置 → 应用管理 → 「系统桌面 / 小米桌面」→ **清除缓存**（只清缓存，**不要点清除数据**，会重置桌面布局）。
+3. 主题 App → 我的 → 图标样式：临时关闭「统一图标样式」或换个样式再换回。
+4. 重启手机；最后手段是卸载后重装。
+
 ## 常见问题
 
 | 现象 | 处理 |
@@ -57,7 +68,6 @@
 | Root 读取失败 | 确认已授权本 App Root、官方 App 已登录过 |
 | 车况一直「正在获取…」 | 检查网络；token 过期就重新获取凭证 |
 | 自动刷新不生效 | Android 12+ 开启「闹钟和提醒」，确认已联网、已登录 |
-| 小米 / MIUI 图标空白 | v1.1 提供 5 档密度 PNG + 自适应图标兜底 |
 
 ## 自行编译
 
@@ -69,7 +79,8 @@ gradle assembleDebug assembleRelease
 
 ## 版本
 
-- **v1.1** — 按 MX-5 车头照片重绘应用图标（深色底 + 魂动红车身，自适应 + 各密度 PNG 兜底）；版本号升级到 `1.1` / `versionCode 2`，主界面显示版本号；图标 PNG 改 256 色索引压缩，Release 包降至 379 KB。
+- **v1.2** — 修复小米桌面只显示默认安卓图标：移除 adaptive/roundIcon 分支、图标改整幅不透明 RGBA PNG、关闭 Release 资源名混淆；`versionCode 3`。
+- **v1.1** — 按 MX-5 车头照片重绘应用图标；版本号升级并显示在界面；图标 PNG 索引压缩。
 - **v1.0** — 首个公开发布：控车小组件、Root/账号/Token 三种凭证、外观自定义、精确闹钟刷新、BLE 自动控车、Debug/Release 双包。
 
 ## 说明
