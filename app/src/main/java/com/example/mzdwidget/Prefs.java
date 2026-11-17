@@ -22,6 +22,8 @@ public final class Prefs {
     private static final String K_SYS_RSSI = "sys_rssi";         // 最近一次命中的信号强度
     private static final String K_SYS_SEEN_AT = "sys_seen_at";   // 最近一次命中时间
     private static final String K_SYS_PENDING = "sys_pending";   // 撞上 10 秒窗口、待看门狗补发的动作（present/absent）
+    private static final String K_SYS_LOST_CONFIRM = "sys_lost_confirm"; // 连续 MATCH_LOST 确认次数（>=3 才上锁）
+    private static final String K_SYS_LOST_AT = "sys_lost_at";   // 最近一次 MATCH_LOST 时间（用于确认窗口）
 
     // 外观设置（独立 prefs，清凭证时不影响）
     private static final String K_BRAND_TEXT = "brand_text";
@@ -116,6 +118,39 @@ public final class Prefs {
         else btPrefs(c).edit().putString(K_SYS_PENDING, action).apply();
     }
     public static String sysPending(Context c) { return btPrefs(c).getString(K_SYS_PENDING, null); }
+
+    /* ===== 离开三次确认：MATCH_LOST 可能误报，连续 N 次才真正上锁 ===== */
+    /**
+     * 收到 MATCH_LOST：进入/保持在疑似离开态，计数幂等置为 1 并刷新时间。
+     * 幂等很重要——系统可能在同一次 lost 态重复投递，不能让它把计数直接推到 3。
+     * 后续确认只由看门狗按窗口推进（advanceSysLostConfirm）。
+     */
+    public static int markSysLost(Context c) {
+        SharedPreferences.Editor e = btPrefs(c).edit();
+        int cur = btPrefs(c).getInt(K_SYS_LOST_CONFIRM, 0);
+        if (cur < 1) {
+            // 首次进入疑似离开：置 1 并起算窗口
+            e.putInt(K_SYS_LOST_CONFIRM, 1)
+                    .putLong(K_SYS_LOST_AT, System.currentTimeMillis()).apply();
+            return 1;
+        }
+        // 已在确认中（系统重复投递 MATCH_LOST）：不动计数、不刷新窗口，
+        // 避免反复刷新导致窗口永远不到期、卡在 1 次。
+        return cur;
+    }
+    /** 看门狗推进一次确认：计数 +1 并刷新窗口起点。返回最新次数 */
+    public static int advanceSysLostConfirm(Context c) {
+        int n = btPrefs(c).getInt(K_SYS_LOST_CONFIRM, 0) + 1;
+        btPrefs(c).edit().putInt(K_SYS_LOST_CONFIRM, n)
+                .putLong(K_SYS_LOST_AT, System.currentTimeMillis()).apply();
+        return n;
+    }
+    public static int sysLostConfirm(Context c) { return btPrefs(c).getInt(K_SYS_LOST_CONFIRM, 0); }
+    public static long lastSysLostAt(Context c) { return btPrefs(c).getLong(K_SYS_LOST_AT, 0L); }
+    /** 取消疑似离开（收到 FIRST_MATCH 或真正上锁后）：清零确认计数 */
+    public static void clearSysLostConfirm(Context c) {
+        btPrefs(c).edit().remove(K_SYS_LOST_CONFIRM).remove(K_SYS_LOST_AT).apply();
+    }
     public static void setSysPresent(Context c, boolean present) {
         btPrefs(c).edit().putBoolean(K_SYS_PRESENT, present).apply();
     }
@@ -131,6 +166,7 @@ public final class Prefs {
         btPrefs(c).edit()
                 .remove(K_SYS_PRESENT).remove(K_SYS_RSSI).remove(K_SYS_SEEN_AT)
                 .remove(K_SYS_ACTION_AT).remove(K_SYS_WAKE_AT).remove(K_SYS_PENDING)
+                .remove(K_SYS_LOST_CONFIRM).remove(K_SYS_LOST_AT)
                 .apply();
     }
 

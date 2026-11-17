@@ -61,6 +61,10 @@ public class BleScanService extends Service {
     private static final int SYS_SCAN_REQ = 8802;
     /** 通知刷新最小间隔 */
     private static final long NOTIF_MIN_MS = 3000L;
+    /** 离开确认：连续 N 次 MATCH_LOST 才真正上锁，防密集环境短暂漏扫误锁 */
+    public static final int LOST_CONFIRM_N = 3;
+    /** 每次离开确认的间隔：用主界面的「离开判定秒数」，默认 30 秒 */
+    private static final long LOST_CONFIRM_WINDOW_MS = 30 * 1000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -163,24 +167,48 @@ public class BleScanService extends Service {
             } else {
                 maybeRebuildSystemScan(now);
             }
-            // 补发被 10 秒窗口挡下的系统扫描边沿动作（落盘，跨进程可靠）。
-            // 系统扫描只投递一次，没有 master 连续轮询的「下一轮重试」，
-            // 所以这里必须兜住，否则靠近不解锁 / 离开不上锁。
-            String pending = Prefs.sysPending(getApplicationContext());
-            if (pending != null && Prefs.sysActionReady(getApplicationContext(), 10000L)) {
-                Prefs.setSysPending(getApplicationContext(), null);
-                Prefs.noteSysAction(getApplicationContext());
+            Context ctx = getApplicationContext();
+
+            // ===== 离开三次确认：防密集环境短暂漏扫误锁 =====
+            // MATCH_LOST 是边沿事件，只投递一次；不能一收到就锁。收到后进入疑似离开态，
+            // 每个确认窗口重新武装一次扫描给设备「重新被发现」的机会：
+            //   - 窗口内又 FIRST_MATCH → receiver 清零计数 → 判定误报，不上锁；
+            //   - 窗口内无 FIRST_MATCH → 计数 +1，进入下一窗口；
+            //   - 累计 LOST_CONFIRM_N 次 → 真离开，上锁。
+            // 代价是锁车延迟约 N × 窗口，换取「绝不因一次漏扫误锁」。
+            int lostN = Prefs.sysLostConfirm(ctx);
+            if (lostN > 0) {
+                long windowMs = Math.max(LOST_CONFIRM_WINDOW_MS,
+                        (long) Prefs.btAwaySec(ctx) * 1000L);
+                if (!btOn) {
+                    // 蓝牙都关了，谈不上确认；挂起不推进也不上锁
+                } else if (now - Prefs.lastSysLostAt(ctx) >= windowMs) {
+                    if (lostN + 1 >= LOST_CONFIRM_N) {
+                        // 第 N 次确认仍没发现设备 → 真离开
+                        Prefs.clearSysLostConfirm(ctx);
+                        doAutoAbsent(ctx, "系统扫描·连续 " + LOST_CONFIRM_N + " 次确认离开");
+                    } else {
+                        // 未达 N：推进计数 + 重新武装扫描（给一次重新被发现机会）
+                        Prefs.advanceSysLostConfirm(ctx);
+                        restartSystemScan();
+                    }
+                }
+            }
+
+            // 补发被 10 秒窗口挡下的系统扫描靠近动作（落盘，跨进程可靠）。
+            // 离开动作现在走上面的三次确认，不再走补发，避免绕过确认直接上锁。
+            String pending = Prefs.sysPending(ctx);
+            if (pending != null && Prefs.sysActionReady(ctx, 10000L)) {
+                Prefs.setSysPending(ctx, null);
+                Prefs.noteSysAction(ctx);
                 final boolean isPresent = "present".equals(pending);
                 new Thread(() -> {
                     if (isPresent) {
-                        Prefs.setSysPresent(getApplicationContext(), true);
-                        CarActions.onBlePresent(getApplicationContext(), (ok, msg) ->
-                                CarActions.toast(getApplicationContext(), "系统扫描·靠近(补发)：" + (msg == null ? "" : msg)));
-                    } else {
-                        Prefs.setSysPresent(getApplicationContext(), false);
-                        CarActions.onBleAbsent(getApplicationContext(), (ok, msg) ->
-                                CarActions.toast(getApplicationContext(), "系统扫描·离开(补发)：" + (msg == null ? "" : msg)));
+                        Prefs.setSysPresent(ctx, true);
+                        CarActions.onBlePresent(ctx, (ok, msg) ->
+                                CarActions.toast(ctx, "系统扫描·靠近(补发)：" + (msg == null ? "" : msg)));
                     }
+                    // "absent" 不再由补发处理：离开必须走三次确认
                 }, "mzd-sys-ble-deferred").start();
             }
             postNotify(false); // 每 2 秒刷新相对时间，内部按 3 秒节流
@@ -272,6 +300,20 @@ public class BleScanService extends Service {
         }
     }
 
+    /** 三次确认通过后的真正上锁：仍受 10 秒窗口约束，撞窗口则挂起由看门狗补发 */
+    private void doAutoAbsent(Context ctx, String label) {
+        if (!Prefs.sysActionReady(ctx, 10000L)) {
+            Prefs.setSysPending(ctx, "absent");
+            return;
+        }
+        Prefs.noteSysAction(ctx);
+        new Thread(() -> {
+            Prefs.setSysPresent(ctx, false);
+            CarActions.onBleAbsent(ctx, (ok, msg) ->
+                    CarActions.toast(ctx, label + "：" + (msg == null ? "" : msg)));
+        }, "mzd-sys-ble-lock").start();
+    }
+
     /** 定向过滤：优先 MAC（实验前提：固定 MAC），名称兜底 */
     private List<ScanFilter> buildFilters() {
         List<ScanFilter> fs = new ArrayList<>();
@@ -354,7 +396,15 @@ public class BleScanService extends Service {
         long wake = Prefs.lastSystemWakeAt(c);
         big.append("\n系统唤醒：").append(sysScanOn ? "已注册" : "未注册")
                 .append(wake > 0 ? " · 最近 " + ago(now - wake) + "前靠近命中" : "");
-        big.append("\n离开判定：系统 MATCH_LOST（系统迟滞，无进程内阈值）");
+        int lostN = Prefs.sysLostConfirm(c);
+        if (lostN > 0) {
+            big.append("\n离开判定：疑似离开 ")
+                    .append(lostN).append("/").append(LOST_CONFIRM_N)
+                    .append(" 次确认（未达 ").append(LOST_CONFIRM_N).append(" 次不上锁，防误锁）");
+        } else {
+            big.append("\n离开判定：正常（MATCH_LOST 需连续 ")
+                    .append(LOST_CONFIRM_N).append(" 次确认才上锁）");
+        }
         big.append("\n车况：").append(carStatusText());
         big.append("\n规则：10 秒窗口（落盘） · 解锁闩锁 ")
                 .append(Prefs.bleUnlockLatched(c) ? "已置位" : "未置位");

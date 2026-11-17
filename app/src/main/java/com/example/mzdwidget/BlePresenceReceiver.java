@@ -52,40 +52,41 @@ public class BlePresenceReceiver extends BroadcastReceiver {
                 && callbackType == ScanSettings.CALLBACK_TYPE_MATCH_LOST;
         if (!firstMatch && !matchLost) return;
 
-        // 无论靠近还是离开，先更新通知用的信号/时间（MATCH_LOST 结果里 RSSI 可能是最后一次的值）
+        // ===== 靠近：清零「疑似离开」确认计数，走正常解锁 =====
         if (firstMatch) {
+            Prefs.clearSysLostConfirm(c); // 设备又出现了 → 之前的 MATCH_LOST 是误报
             Prefs.noteSystemWake(c);
             Prefs.noteSysRssi(c, sr.getRssi());
-        }
 
-        // 10 秒窗口（落盘）：两条自动指令任意方向都受约束。
-        // 系统扫描是边沿事件（只投递一次），不能像 master 的连续轮询那样下一轮重试，
-        // 撞窗口时把动作落盘挂起，交前台服务看门狗在窗口结束后补发，绝不丢动作。
-        if (!Prefs.sysActionReady(c, DEDUP_MS)) {
-            Prefs.setSysPending(c, firstMatch ? "present" : "absent");
-            return;
-        }
-        Prefs.setSysPending(c, null);
-        Prefs.noteSysAction(c);
-
-        final String label = firstMatch ? "系统扫描·靠近" : "系统扫描·离开";
-        final PendingResult pr = goAsync();
-        new Thread(() -> {
-            try {
-                if (firstMatch) {
+            // 10 秒窗口（落盘）：撞窗口时挂起，交看门狗补发，绝不丢动作
+            if (!Prefs.sysActionReady(c, DEDUP_MS)) {
+                Prefs.setSysPending(c, "present");
+                return;
+            }
+            Prefs.setSysPending(c, null);
+            Prefs.noteSysAction(c);
+            final PendingResult pr = goAsync();
+            new Thread(() -> {
+                try {
                     Prefs.setSysPresent(c, true);
                     CarActions.onBlePresent(c, (ok, msg) ->
-                            CarActions.toast(c, label + "：" + (msg == null ? "" : msg)));
-                } else {
-                    Prefs.setSysPresent(c, false);
-                    CarActions.onBleAbsent(c, (ok, msg) ->
-                            CarActions.toast(c, label + "：" + (msg == null ? "" : msg)));
+                            CarActions.toast(c, "系统扫描·靠近：" + (msg == null ? "" : msg)));
+                } finally {
+                    pr.finish();
                 }
-            } finally {
-                // 无论成功失败都要结束广播，否则系统认为 receiver 一直未处理完
-                pr.finish();
-            }
-        }, "mzd-sys-ble").start();
+            }, "mzd-sys-ble").start();
+            return;
+        }
+
+        // ===== 离开：MATCH_LOST 是边沿事件，只投递一次，不能直接上锁 =====
+        // 记一次「疑似离开」。真正的上锁交给看门狗：每个确认窗口复核一次，
+        // 只要期间设备再次 FIRST_MATCH（说明是密集环境漏扫误报）就清零取消；
+        // 连续 LOST_CONFIRM_N 个窗口都没再发现设备，才判定真离开并上锁。
+        // 这样「接受延迟锁车，但不能接受误锁车」。
+        int n = Prefs.markSysLost(c);
+        CarActions.toast(c, "系统扫描·疑似离开（" + n + "/"
+                + BleScanService.LOST_CONFIRM_N + " 次确认，暂不上锁）");
+        // 不占 10 秒窗口、不发上锁指令；看门狗每 2 秒会刷新通知显示确认进度
     }
 
     @SuppressLint("WrongConstant")
