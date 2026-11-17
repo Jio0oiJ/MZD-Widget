@@ -2,14 +2,14 @@
 
 马自达远程控车的简洁 Android 桌面小组件。Java 编写、零第三方依赖，协议静态逆向自官方《MZD手机控车》App，**仅限本人账号与车辆使用**。
 
-当前版本 **v1.7** · 主界面顶部显示版本号 · [更新日志](#版本)
+当前版本 **v1.8** · 主界面顶部显示版本号 · [更新日志](#版本)
 
 ## 下载
 
 | 构建 | 文件 | 大小 | SHA256 |
 |---|---|---|---|
-| Debug | [`MZD-Widget-v1.7-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.7/MZD-Widget-v1.7-debug.apk) | 421,951 B | `8e004496e543342a0c1dfba3575f6821260fc5298474e210c6d6dca091515d74` |
-| Release | [`MZD-Widget-v1.7-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.7/MZD-Widget-v1.7-release.apk) | 387,638 B | `e8cbb60d16f65361e464585744fa8a30225538ae0319a8bfcb1a133a69996cfe` |
+| Debug | [`MZD-Widget-v1.8-debug.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.8/MZD-Widget-v1.8-debug.apk) | 423,763 B | `4b739e21064d218692f6de3c20298b0706cb07106372765f32380de2a7968738` |
+| Release | [`MZD-Widget-v1.8-release.apk`](https://github.com/Jio0oiJ/MZD-Widget/releases/download/v1.8/MZD-Widget-v1.8-release.apk) | 389,150 B | `fe16b9cef33ae4dbb5e13bbef83793955cb76b82ecc54e374b07ecdb38ab2bbf` |
 
 [全部 Release](https://github.com/Jio0oiJ/MZD-Widget/releases) ｜ 两包同一签名，**可直接覆盖安装**，无需卸载；Release 体积更小，日常推荐。
 
@@ -129,8 +129,29 @@ v1.2 起图标路径收敛为**单一各密度 PNG**：去掉 adaptive-icon / ro
 gradle assembleDebug assembleRelease
 ```
 
+### 熄屏靠近立即解锁（v1.8）
+
+新增一条**系统级 `PendingIntent` 扫描**，与原有前台服务连续扫描并行：
+
+- 扫描注册由**系统蓝牙栈**持有，不是 App 进程。目标设备出现时由系统投递广播并解冻进程，
+  **即使 MIUI 冻结了前台服务、回调送不到，靠近解锁依然触发**。
+- 用 `CALLBACK_TYPE_FIRST_MATCH | MATCH_LOST`：只在设备「从无到有」时唤醒一次，
+  节省电量且避免每个广播包都唤醒；`MATCH_LOST` 让系统在离开后重新武装，下次靠近能再次触发。
+- 过滤器用已选设备的固定 MAC，扫描模式 `LOW_POWER`（系统持有、不占本进程 CPU）。
+- 每 5 分钟重建一次，避免系统 30 分钟后把扫描降级为 opportunistic。
+- 解锁仍走 `CarActions.onBlePresent` 的落盘闩锁：**本次靠近只解锁一次**，重复投递无副作用；
+  10 秒窗口、离开上锁、亮屏/熄屏阈值仍由前台服务负责，规则未变。
+- 前提：设备 MAC 固定（随机 MAC 无法用 `setDeviceAddress` 硬件过滤）。
+- 通知栏「系统唤醒」行显示启用状态与最近命中时间，便于验证。
+
+> 不建立 GATT 连接：连接不稳定不影响本方案，全程只读广播。系统扫描仍受射频占空比约束，
+> 命中延迟通常为秒级，不是毫秒级；但相比进程被冻结时完全收不到，是可靠性的质变。
+
 ## 版本
 
+- **v1.8** — 新增系统级 `PendingIntent` 扫描（`FIRST_MATCH`/`MATCH_LOST`），
+  实现**熄屏靠近立即解锁**：系统持有扫描注册并解冻投递，不受进程冻结影响；
+  每 5 分钟重建防降级；复用落盘闩锁，10 秒窗口与上锁规则不变；`versionCode 9`。
 - **v1.7** — 去掉 5 分钟兜底；熄屏离开阈值改为固定 60 秒、亮屏恢复原阈值，避开 BLE 熄屏扫描间隔；`versionCode 8`。
 - **v1.6** — 修复**熄屏漏扫导致误判离开/靠近**：熄屏冻结离开判定（5 分钟兜底）、亮屏 10 秒重新确认、在场状态落盘防服务重建误判；通知栏增加「判定」行；`versionCode 7`。
 - **v1.5** — 选好设备后**只对该设备定向连续扫描**（非空 `ScanFilter` + `LOW_LATENCY` + `AGGRESSIVE` 上报），修复扫描失败静默失效与蓝牙重开不恢复，增加自愈重启；**通知栏改为实时状态**（在附近/已离开、RSSI、扫描状态、最近动作、车况与闩锁）；选设备优先读广播包内的名称；`versionCode 6`。
