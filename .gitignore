@@ -3,6 +3,7 @@
 !/.gitignore
 !/mzdwidget_build/
 !/MZD小组件/
+!/tools/
 
 # ---- 源码工程：只保留构建脚本与 src ----
 /mzdwidget_build/*
@@ -31,6 +32,10 @@ local.properties
 # ---- 文档目录：只保留 markdown ----
 /MZD小组件/*
 !/MZD小组件/*.md
+
+# ---- 工具脚本 ----
+/tools/*
+!/tools/*.sh
 
 # 通用
 *.log
