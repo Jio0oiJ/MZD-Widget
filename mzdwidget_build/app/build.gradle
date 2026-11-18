@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.mzdwidget'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.example.mzdwidget'
+        minSdk 24
+        targetSdk 34
+        versionCode 37
+        versionName '1.9.8'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    // 不依赖任何第三方库；网络用 JDK 的 HttpURLConnection，
+    // MD5/AES 用 javax.crypto，JSON 用内置 Org.json。
+}

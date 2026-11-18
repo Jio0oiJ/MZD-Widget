@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp" android:height="32dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- 放大镜：寻车/找车 -->
+    <path
+        android:strokeColor="#E8871A" android:strokeWidth="1.9"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M10.5,4.5 A6,6 0 1,0 10.5,16.5 A6,6 0 1,0 10.5,4.5" />
+    <path
+        android:strokeColor="#E8871A" android:strokeWidth="2.1"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M15,15 L20.5,20.5" />
+</vector>

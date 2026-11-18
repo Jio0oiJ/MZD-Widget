@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="btn_start">#D32F2F</color>
+    <color name="btn_stall">#424242</color>
+    <color name="btn_unlock">#1976D2</color>
+    <color name="btn_lock">#388E3C</color>
+    <color name="widget_bg">#F5F5F5</color>
+</resources>

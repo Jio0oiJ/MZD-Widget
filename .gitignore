@@ -1,0 +1,38 @@
+# ===== 白名单式忽略：只备份源码与文档，其余一律不入库 =====
+/*
+!/.gitignore
+!/mzdwidget_build/
+!/MZD小组件/
+
+# ---- 源码工程：只保留构建脚本与 src ----
+/mzdwidget_build/*
+!/mzdwidget_build/app/
+!/mzdwidget_build/build.gradle
+!/mzdwidget_build/settings.gradle
+!/mzdwidget_build/gradle.properties
+!/mzdwidget_build/app/*
+!/mzdwidget_build/app/src/
+!/mzdwidget_build/app/build.gradle
+
+# 构建产物与本机配置
+/mzdwidget_build/.gradle/
+/mzdwidget_build/local.properties
+/mzdwidget_build/app/build/
+**/build/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.jks
+*.keystore
+*.idsig
+
+# ---- 文档目录：只保留 markdown ----
+/MZD小组件/*
+!/MZD小组件/*.md
+
+# 通用
+*.log
+Thumbs.db
+.DS_Store
