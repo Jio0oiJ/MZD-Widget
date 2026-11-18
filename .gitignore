@@ -1,6 +1,7 @@
 # ===== 白名单式忽略：只备份源码与文档，其余一律不入库 =====
 /*
 !/.gitignore
+!/.gitattributes
 !/mzdwidget_build/
 !/MZD小组件/
 !/tools/
