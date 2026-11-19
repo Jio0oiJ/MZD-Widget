@@ -152,6 +152,13 @@ public final class Api {
             }
             if (hasDoorField) s.unlocked = anyEqualsOne(lock, "lf", "lr", "rf", "rr");
         }
+        // v1.9.12：HTTP 200 但业务降级/异常（如 status:500、result:null、字段全缺）会解析出
+        // started/unlocked/mileage 全空的对象。若当作成功返回，CarStateCache.queryOnce 的
+        // ok=(s!=null) 恒为 true → 污染缓存、清空 lastError、推进 successSeq，破坏"本轮成功"语义。
+        // 与 CarActions.statusUnavailable 口径一致：三个字段全缺视为车况不可用，抛异常走失败分支。
+        if (s.started == null && s.unlocked == null && (s.mileage == null || s.mileage.isEmpty())) {
+            throw new Exception("车况响应无有效字段（业务降级或异常）");
+        }
         return s;
     }
 

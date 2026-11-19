@@ -238,20 +238,33 @@ public final class RootTokenReader {
     private static String runSu(String flag, String script) throws Exception {
         ProcessBuilder pb = (flag == null) ? new ProcessBuilder("su") : new ProcessBuilder("su", flag);
         Process p = pb.start();
+        // v1.9.12：并发读取 stdout/stderr，避免"先读 stdout 到 EOF 再读 stderr"的双流死锁
+        // （su 若把诊断写到 stderr 并填满管道缓冲区，进程阻塞在写 stderr → stdout 永不 EOF → 永久卡住）。
+        final String[] outHolder = {""};
+        Thread outThread = new Thread(() -> {
+            try { outHolder[0] = readAll(p.getInputStream()); } catch (Exception ignored) { }
+        }, "mzd-su-out");
+        Thread errThread = new Thread(() -> {
+            try { readAll(p.getErrorStream()); } catch (Exception ignored) { }
+        }, "mzd-su-err");
+        outThread.setDaemon(true);
+        errThread.setDaemon(true);
+        outThread.start();
+        errThread.start();
         try {
             OutputStream os = p.getOutputStream();
             os.write(script.getBytes(StandardCharsets.UTF_8));
             os.flush();
             os.close();
-            String out = readAll(p.getInputStream());
-            readAll(p.getErrorStream());
-            // v1.9.4：带超时等待，避免 su 授权弹窗长期不确认/卡死时后台线程永久阻塞
-            // （阻塞会导致 setBusy(true) 不恢复、按钮一直禁用）。
+            // v1.9.12：超时判断必须先于对读取结果的等待——原实现把阻塞的 readAll 放在
+            // waitFor 之前，su 卡在授权弹窗时 readAll 永久阻塞，30 秒超时形同虚设。
             if (!p.waitFor(30, TimeUnit.SECONDS)) {
                 p.destroyForcibly();
                 throw new Exception("su 命令超时（30 秒），已终止");
             }
-            return out;
+            // 进程已退出，有限等待读取线程收尾（正常会立即结束）；绝不无限 join。
+            try { outThread.join(2000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            return outHolder[0];
         } finally {
             // 兜底：任何异常路径都不留下存活的 su 进程
             if (p.isAlive()) p.destroyForcibly();

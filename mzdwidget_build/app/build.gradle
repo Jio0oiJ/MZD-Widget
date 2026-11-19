@@ -10,8 +10,8 @@ android {
         applicationId 'com.example.mzdwidget'
         minSdk 24
         targetSdk 34
-        versionCode 37
-        versionName '1.9.8'
+        versionCode 41
+        versionName '1.9.12'
     }
 
     buildTypes {

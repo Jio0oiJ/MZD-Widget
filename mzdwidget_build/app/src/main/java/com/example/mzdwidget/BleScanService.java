@@ -335,7 +335,11 @@ public class BleScanService extends Service {
             } else if (!scanning) {
                 if (now >= restartAt && hasPermission()) {
                     stopScanInternal();   // 清掉可能残留的旧注册
-                    startScanInternal(true);
+                    // v1.9.12：自愈重启（扫描失败/蓝牙关→开）绝不重置 present。
+                    // 原为 true 会 setPresent(false)+lastSeen=0，既作废上面 :326 刚设的蓝牙开宽限期，
+                    // 又与类注释"蓝牙关→开/进程重建不重置 present"冲突，导致误判重复解锁。
+                    // 只有设备被重新选择（onStartCommand 的 filterKey 变化）才需要 resetState=true。
+                    startScanInternal(false);
                 }
             } else {
                 if (now - scanStartedAt >= RESTART_SCAN_MS

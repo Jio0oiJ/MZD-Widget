@@ -123,6 +123,15 @@ public final class CarActions {
                 if (cb != null) cb.onResult(false, "车况连续两轮查询失败，一键启动已终止（未执行任何指令）");
                 return;
             }
+            // v1.9.12：门态未知(unlocked==null)绝不能当成"未锁"去下发 lock。
+            // statusUnavailable 只拦"started/unlocked 全缺"，若 started 有值而门态缺失，
+            // isLocked(null) 会返回 false 误判为未锁 → 误发预锁车指令，违反 null 不下发底线。
+            if (s0.unlocked == null) {
+                CarWidget.cancelSmartUnlockFallback(c);
+                CtrlLog.e(TAG,"【一键启动】步骤1：门状态未知，终止（未执行任何指令）");
+                if (cb != null) cb.onResult(false, "车门状态未知，一键启动已终止（未执行任何指令）");
+                return;
+            }
             if (isLocked(s0)) {
                 CtrlLog.i(TAG,"【一键启动】步骤1：车已锁，直接进入启动");
             } else {

@@ -19,9 +19,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 20 秒快刷由系统精确闹钟驱动，App 进程被回收也能继续（API 31+） -->
+    <!-- 20 秒快刷由系统精确闹钟驱动，App 进程被回收也能继续（API 31+）。
+         只用 SCHEDULE_EXACT_ALARM：CarWidget 已用 canScheduleExactAlarms() 判断并降级到
+         setAndAllowWhileIdle。USE_EXACT_ALARM 会无条件获得精确闹钟权限且限闹钟/日历类应用，
+         与普通控车工具语义不符、有商店上架被拒风险，故不声明（v1.9.12）。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".MzdApp"
