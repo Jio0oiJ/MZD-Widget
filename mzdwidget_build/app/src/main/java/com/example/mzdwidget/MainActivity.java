@@ -54,11 +54,6 @@ public class MainActivity extends Activity {
     private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog;
     private CheckBox cbBtEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
-    // 全盘审核修复：凭证操作代次。登录/Root 导入是异步的，期间若用户点「清除凭证」，
-    // 旧线程返回仍会写回 token/carid 导致「已登出但凭证复活」。每次发起凭证写入或清除都递增，
-    // 回调时比对代次，不一致即丢弃本次结果。
-    private final java.util.concurrent.atomic.AtomicInteger credOpGen =
-            new java.util.concurrent.atomic.AtomicInteger(0);
 
     /** 权限未授予时把开关回弹到 false，避免 setChecked(false) 递归触发监听器误停服务 */
     private boolean suppressBtToggle = false;
@@ -91,46 +86,6 @@ public class MainActivity extends Activity {
     // ConcurrentModificationException / 可见性问题（原 LinkedHashMap 跨线程无同步）。
     private final ConcurrentHashMap<String, String> picked = new ConcurrentHashMap<>();
     private ProgressDialog pickDialog;
-
-    /** 全盘审核修复：选设备结果回调抽成字段，重复点击时可 removeCallbacks 取消旧任务 */
-    private final Runnable pickResultRunnable = new Runnable() {
-        @Override public void run() {
-            // 12 秒内用户可能已返回/旋转屏幕：Activity 已销毁时绝不能弹 Dialog，
-            // 否则以已销毁 Activity 为 Context show() 会抛 BadTokenException 崩溃。
-            if (isFinishing() || isDestroyed()) { btnPickBt.setEnabled(true); return; }
-            stopPickScan();
-            final List<String> macs = new ArrayList<>(picked.keySet());
-            if (macs.isEmpty()) {
-                logMsg("附近没扫到 BLE 设备，让设备保持广播/亮屏后再试");
-                btnPickBt.setEnabled(true);
-                return;
-            }
-            CharSequence[] items = new CharSequence[macs.size()];
-            for (int i = 0; i < macs.size(); i++) {
-                String mac = macs.get(i);
-                String n = picked.get(mac);
-                items[i] = (n == null || n.isEmpty() ? "未知设备" : n) + "\n" + mac;
-            }
-            new android.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("选择触发设备（BLE 扫描，无需连接）")
-                    .setItems(items, (DialogInterface dialog, int which) -> {
-                        String mac = macs.get(which);
-                        String n = picked.get(mac);
-                        Prefs.saveBtDevice(MainActivity.this, mac, n == null ? "" : n);
-                        refreshBtDeviceText();
-                        logMsg("已选择：" + (n == null || n.isEmpty() ? mac : n));
-                        if (Prefs.btEnabled(MainActivity.this)) {
-                            Prefs.setBleUnlockLatched(MainActivity.this, false);
-                            stopBleScanService();
-                            startBleScanService();
-                        }
-                        btnPickBt.setEnabled(true);
-                    })
-                    .setOnCancelListener(d -> btnPickBt.setEnabled(true))
-                    .setNegativeButton("取消", (d, w) -> btnPickBt.setEnabled(true))
-                    .show();
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -204,9 +159,6 @@ public class MainActivity extends Activity {
         btnRefresh.setOnClickListener(v -> doRefresh());
         btnViewLog.setOnClickListener(v -> showCtrlLogDialog());
         btnLogout.setOnClickListener(v -> {
-            // 全盘审核修复：先递增代次，作废任何在途的登录/Root 导入写入，
-            // 防止它们稍后返回把刚清掉的凭证重新写回。
-            credOpGen.incrementAndGet();
             Prefs.clear(this);
             onCredentialChanged();
             etToken.setText(""); etCarid.setText(""); etPass.setText("");
@@ -278,12 +230,6 @@ public class MainActivity extends Activity {
         });
         btnPickBt.setOnClickListener(v -> {
             if (!hasBtPermission()) { requestBtPermission(); return; }
-            // 全盘审核修复：12 秒扫描窗口内重复点击会新建多个 ProgressDialog、
-            // 注册多个 postDelayed 回调，导致弹窗无法全部关闭、设备选择结果错乱。
-            // 进入前先清掉上一轮的扫描/弹窗/延迟任务，并在结果回调里恢复按钮。
-            stopPickScan();
-            ui.removeCallbacks(pickResultRunnable);
-            btnPickBt.setEnabled(false);
             startBleDevicePicker();
         });
         // 若开关此前已打开（例如开机恢复），进入界面时确保服务在运行
@@ -442,10 +388,10 @@ public class MainActivity extends Activity {
     /** 扫描周边正在广播的 BLE 设备，点击选中作为触发设备（无需配对/连接） */
     private void startBleDevicePicker() {
         BluetoothAdapter ba = BluetoothAdapter.getDefaultAdapter();
-        if (ba == null) { logMsg("本机没有蓝牙"); btnPickBt.setEnabled(true); return; }
-        if (!ba.isEnabled()) { logMsg("请先打开手机蓝牙再扫描"); btnPickBt.setEnabled(true); return; }
+        if (ba == null) { logMsg("本机没有蓝牙"); return; }
+        if (!ba.isEnabled()) { logMsg("请先打开手机蓝牙再扫描"); return; }
         pickScanner = ba.getBluetoothLeScanner();
-        if (pickScanner == null) { logMsg("本机不支持 BLE 扫描"); btnPickBt.setEnabled(true); return; }
+        if (pickScanner == null) { logMsg("本机不支持 BLE 扫描"); return; }
 
         picked.clear();
         pickDialog = new ProgressDialog(this);
@@ -458,11 +404,42 @@ public class MainActivity extends Activity {
             ScanSettings settings = new ScanSettings.Builder()
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
             pickScanner.startScan(null, settings, pickCb);
-        } catch (SecurityException e) { dismissPick(); logMsg("无扫描权限，请授予后重试"); btnPickBt.setEnabled(true); return; }
-        catch (Exception e) { dismissPick(); logMsg("启动扫描失败：" + e.getMessage()); btnPickBt.setEnabled(true); return; }
+        } catch (SecurityException e) { dismissPick(); logMsg("无扫描权限，请授予后重试"); return; }
+        catch (Exception e) { dismissPick(); logMsg("启动扫描失败：" + e.getMessage()); return; }
 
-        // 全盘审核修复：复用同一 Runnable 字段，重复点击时 onClick 里可 removeCallbacks 取消旧任务
-        ui.postDelayed(pickResultRunnable, BLE_PICK_MS);
+        ui.postDelayed(() -> {
+            // 12 秒内用户可能已返回/旋转屏幕：Activity 已销毁时绝不能弹 Dialog，
+            // 否则以已销毁 Activity 为 Context show() 会抛 BadTokenException 崩溃。
+            if (isFinishing() || isDestroyed()) return;
+            stopPickScan();
+            final List<String> macs = new ArrayList<>(picked.keySet());
+            if (macs.isEmpty()) {
+                logMsg("附近没扫到 BLE 设备，让设备保持广播/亮屏后再试");
+                return;
+            }
+            CharSequence[] items = new CharSequence[macs.size()];
+            for (int i = 0; i < macs.size(); i++) {
+                String mac = macs.get(i);
+                String n = picked.get(mac);
+                items[i] = (n == null || n.isEmpty() ? "未知设备" : n) + "\n" + mac;
+            }
+            new android.app.AlertDialog.Builder(MainActivity.this)
+                    .setTitle("选择触发设备（BLE 扫描，无需连接）")
+                    .setItems(items, (DialogInterface dialog, int which) -> {
+                        String mac = macs.get(which);
+                        String n = picked.get(mac);
+                        Prefs.saveBtDevice(MainActivity.this, mac, n == null ? "" : n);
+                        refreshBtDeviceText();
+                        logMsg("已选择：" + (n == null || n.isEmpty() ? mac : n));
+                        if (Prefs.btEnabled(MainActivity.this)) {
+                            Prefs.setBleUnlockLatched(MainActivity.this, false);
+                            stopBleScanService();
+                            startBleScanService();
+                        }
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        }, BLE_PICK_MS);
     }
 
     private void stopPickScan() {
@@ -551,11 +528,10 @@ public class MainActivity extends Activity {
 
     /** 方式一：Root 一键读取官方 App 凭证 */
     private void doRootImport() {
-        final int myGen = credOpGen.get();
         setBusy(true);
         tvStatus.setText("正在申请 Root 权限并读取凭证…");
         new Thread(() -> {
-            String msg = "";
+            String msg;
             boolean ok = false;
             try {
                 if (!RootTokenReader.hasRoot()) {
@@ -563,9 +539,6 @@ public class MainActivity extends Activity {
                             + "并确认授权模式为「超级用户」而非「Shell」。";
                 } else {
                     RootTokenReader.Result r = RootTokenReader.read();
-                    // 全盘审核修复：Root 读取期间若用户点了「清除凭证」，代次已变——丢弃结果，
-                    // 不写 Prefs、不拉车况，避免已登出后凭证复活。
-                    if (myGen != credOpGen.get()) return;
                     if (r.ok()) {
                         applyResult(r);
                         msg = "读取成功！车号：" + r.carid + "\n\n" + r.diag;
@@ -582,7 +555,6 @@ public class MainActivity extends Activity {
             final boolean success = ok;
             ui.post(() -> {
                 setBusy(false);
-                if (myGen != credOpGen.get()) return; // 已被登出作废
                 if (success) {
                     refreshStatusText();
                     refreshWidget();
@@ -615,41 +587,21 @@ public class MainActivity extends Activity {
         if (phone.isEmpty() || pass.isEmpty()) {
             logMsg("请输入手机号和密码"); return;
         }
-        final int myGen = credOpGen.get();
         setBusy(true);
         tvStatus.setText("登录中…");
         new Thread(() -> {
-            String msg = "";
-            String loginCarid = null;
-            boolean cancelled = false;
+            String msg;
             try {
                 Api.LoginResult r = Api.login(phone, pass);
-                // 全盘审核修复：网络请求期间若用户点了「清除凭证」，代次已变——
-                // 丢弃本次结果，绝不写回 Prefs，否则会出现「已登出但凭证复活」。
-                if (myGen != credOpGen.get()) {
-                    cancelled = true;
-                } else {
-                    Prefs.save(this, r.token, r.carid, r.userid, phone, pass);
-                    onCredentialChanged();
-                    loginCarid = r.carid;
-                    msg = "登录成功，车辆ID：" + r.carid;
-                }
+                Prefs.save(this, r.token, r.carid, r.userid, phone, pass);
+                onCredentialChanged();
+                msg = "登录成功，车辆ID：" + r.carid;
             } catch (Exception e) {
                 msg = "登录失败：" + shortErr(e);
             }
             final String m = msg;
-            final String finalCarid = loginCarid;
-            final boolean wasCancelled = cancelled;
             ui.post(() -> {
                 setBusy(false);
-                if (wasCancelled) return; // 已被登出作废，不写输入框、不刷新
-                // 全盘审核修复：账号登录成功后必须同步回写输入框，与 Root 路径 applyResult 一致。
-                // 否则「账号 A 登录→账号 B 登录→手动点保存 Token」会把 B 的 token 配上
-                // etCarid 里残留的 A 车号，写成错配凭证（401/查错车）。成功时同步车号与 token 占位符。
-                if (finalCarid != null) {
-                    etCarid.setText(finalCarid);
-                    etToken.setText("****************");
-                }
                 logMsg(m);
                 refreshStatusText();
                 refreshWidget();
@@ -716,9 +668,6 @@ public class MainActivity extends Activity {
         btnRootImport.setEnabled(!b);
         btnLogin.setEnabled(!b);
         btnSaveToken.setEnabled(!b);
-        // 全盘审核修复：耗时登录/Root 导入期间禁止点「清除凭证」，
-        // 否则用户清完后旧线程返回仍会写回凭证（复活）。代次校验为第二道防线。
-        btnLogout.setEnabled(!b);
     }
 
     /** 原 toast 提示改为写 log（本项目已移除所有 Toast） */
@@ -771,8 +720,5 @@ public class MainActivity extends Activity {
     private void onCredentialChanged() {
         CarStateCache.get(this).invalidate();
         CarWidget.clearStatusOnCredentialChange(this);
-        // 全盘审核修复：credential 变更时同步清空指令日志——日志里含上一次账号的 carid
-        // （如「登录成功，车辆ID：xxx」），不清会导致切号后日志混着旧账号信息。
-        CtrlLog.clear();
     }
 }

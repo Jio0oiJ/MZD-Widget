@@ -134,26 +134,8 @@ public final class Api {
         // → 把「engine:null（未知）」误判成「明确未启动(false)」。改为先排除 null/NULL：
         // 缺失或显式 null 时保持 started=null（未知）交给上层按不可用处理；
         // 真值仍用 optInt 解析，保留对字符串数字（如 "3"）的兼容。
-        // 全盘审核修复：只接受「整数」类型的 engine（Number 或纯数字字符串）。
-        // 原实现只要非 null/NULL 就 optInt，Boolean/非数字字符串/JSONObject 会被 optInt
-        // 归零成 0 → started=false（明确未启动），穿透上层「行驶中不开门」安全底线；
-        // 浮点 3.5 还会被 intValue() 截成 3 误判为已启动。异常类型一律保持 started=null
-        // 交给上层按「不可用」跳过待重试，绝不臆断成已熄火。
         Object eng = d.opt("engine");
-        if (eng instanceof Number) {
-            double dv = ((Number) eng).doubleValue();
-            // 仅接受整数值且在 int 范围内；非整数浮点（如 3.5）按未知处理
-            if (dv == Math.rint(dv) && dv >= Integer.MIN_VALUE && dv <= Integer.MAX_VALUE) {
-                s.started = ((int) dv == 3);
-            }
-        } else if (eng instanceof String) {
-            String es = ((String) eng).trim();
-            if (es.matches("-?\\d+")) {
-                try { s.started = (Integer.parseInt(es) == 3); }
-                catch (NumberFormatException ignored) { /* 超大数字按未知处理 */ }
-            }
-        }
-        // null / JSONObject.NULL / Boolean / JSONObject / 其它字符串 → started 保持 null（未知）
+        if (eng != null && eng != JSONObject.NULL) s.started = (d.optInt("engine", 0) == 3);
         s.mileage = d.optString("mileage", "");
         // lock: lf/lr/rf/rr 任一 ==1 表示未上锁
         // v1.9.5：仅当至少有任一门字段存在时才写 unlocked。若 lock 对象存在但子字段全缺
@@ -163,30 +145,18 @@ public final class Api {
         if (lock != null) {
             // v1.9.6：has() 对值为 NULL 的键也返回 true，需排除——四个门字段全为 null 时
             // 不能算「有效门数据」，否则 unlocked 会被算成 false（已锁）绕过不可用保护。
-            // 全盘审核修复：门字段只认 Number / 纯数字字符串。原实现只要非 null/NULL
-            // 就算「有效门数据」，但 anyEqualsOne 的 optInt 对 "locked"/true/对象会取默认 0，
-            // 把异常字段误判成「已锁」；四个门全异常时 unlocked=false 会绕过不可用保护。
             boolean hasDoorField = false;
             for (String k : new String[]{"lf", "lr", "rf", "rr"}) {
-                if (isDoorNumber(lock.opt(k))) { hasDoorField = true; break; }
+                Object v = lock.opt(k);
+                if (v != null && v != JSONObject.NULL) { hasDoorField = true; break; }
             }
             if (hasDoorField) s.unlocked = anyEqualsOne(lock, "lf", "lr", "rf", "rr");
         }
         return s;
     }
 
-    /** 门字段是否为合法整数值（Number 或纯数字字符串）；异常类型不计入有效门数据 */
-    private static boolean isDoorNumber(Object v) {
-        if (v instanceof Number) return true;
-        if (v instanceof String) return ((String) v).trim().matches("-?\\d+");
-        return false;
-    }
-
     private static boolean anyEqualsOne(JSONObject o, String... keys) {
-        for (String k : keys) {
-            if (!isDoorNumber(o.opt(k))) continue; // 异常类型跳过，不当成 0（已锁）
-            if (o.optInt(k, 0) == 1) return true;
-        }
+        for (String k : keys) if (o.optInt(k, 0) == 1) return true;
         return false;
     }
 

@@ -1,4 +1,4 @@
-# BLE 控车判定逻辑清单（v1.9.11）
+# BLE 控车判定逻辑清单（v1.9.8）
 
 > 供复核。覆盖从「服务启停 → 扫描命中 → 靠近解锁 → 离开上锁 → 一键启动」的全部判定分支，  
 > 逐条标注源码位置、判定条件、满足/不满足时动作。所有指令发出统一在 `CarActions.send` 写 log  
@@ -123,7 +123,7 @@
   silent = now - lastSeen
   gone =
     亮屏: (now - screenOnAt >= 10s) && silent >= btAwaySec(默认30s)
-    熄屏: silent >= 90s（固定，不随设置缩放）
+    熄屏: silent >= 60s（固定，不随设置缩放）
   └─ gone && now - lastBleAction >= 10s ?
        ├─ 否 → 不动作
        └─ 是 → lastBleAction=now; present=false; 计数+log
@@ -192,7 +192,7 @@ v1.8.4 补齐"字段全 null"、v1.9.3 进一步收紧为"任何 `unlocked!=true
 └─ 步骤3 解锁
      发 unlock
      poll：每 3 秒查，直到 unlocked==true → 打 markSmartUnlockDone → 完成
-     ⏱ 20 秒未确认 → 重发 unlock（最多 3 次）→ 仍未确认 → 结束
+     ⏱ 15 秒未确认 → 重发 unlock（最多 3 次）→ 仍未确认 → 结束
 
 异常 / 任一步失败 → cancelSmartUnlockFallback（清掉旧兜底，绝不误补发解锁）
 finally → SMART_RUNNING=false
