@@ -159,17 +159,19 @@ gradle assembleDebug assembleRelease
 
 ```bash
 git fetch --tags origin                 # 同步远端 tag
-git checkout v1.9.8                     # 切到某个历史版本的源码快照
+git checkout v1.9.13                    # 切到某个历史版本的源码快照
 ```
 
 - 仓库：`https://github.com/Jio0oiJ/MZD-Widget.git`（master 分支为当前主线）。
 - 打 tag 由 `tools/version-backup.sh` 在每次版本备份时自动完成（源码无改动也照打），并同时推送源码与 tag。
-- 现有 tag：`v1.0` ~ `v1.8`、`v1.9.8`。
+- 现有 tag：`v1.0` ~ `v1.8`、`v1.9.8`、`v1.9.12`、`v1.9.13`。
 - **历史限制**：`v1.9.0`~`v1.9.7` 开发期间未单独提交过，源码已被后续版本覆盖，无法补打 tag；这些版本的变更记录仍保留在下方版本说明与复核报告中。从 v1.9.8 起每个小版本都有 tag。
 - 注意：tag 是本地不可变快照，回退只影响源码 checkout，不会自动重建/替换已安装的 APK；如需对应版本 APK 仍要按该版本重新编译。
 
 - **v1.9.10 / v1.9.9（已撤销）** — 曾把「设备被 GATT 连接后停播」做成 App 内自动检测（`gattBusy` 探测、占用时暂停自动上锁、主界面体检按钮），并合入扫描加固与宽扫诊断。**按用户要求已全部回滚**：不做自动检测、不加界面按钮；扫不到时由用户在系统蓝牙里删除配对即可。源码与交付 APK 均回到 `v1.9.8 / versionCode 37`。
-- **v1.9.8（当前版本）** — 主界面新增指令日志查看，`versionCode 37`。底部固定「查看指令日志」按钮，点击弹窗显示已落盘的控车日志（指令发出/成功/失败、一键启动各步骤、BLE 靠近/离开判定、主界面提示），最新在前、最多 200 条、可一键清空。日志同时保留 logcat 输出；不含 token 等凭证。实现：新增 `CtrlLog`（SharedPreferences 环形缓冲）+ `MzdApp`（全局 Context），`CarActions`/`MainActivity` 的日志统一改走 `CtrlLog`。
+- **v1.9.13（当前版本）** — 选设备弹窗增加 RSSI 显示与信号排序，并支持手动输入，`versionCode 42`。扫描结果列表按 RSSI 从大到小（信号由强到弱）排列，每项显示「设备名 [RSSI dBm] + MAC」；弹窗新增 MAC / 名称输入框，扫不到目标设备或目标不在列表时可手动填写，MAC 按 `BluetoothAdapter.checkBluetoothAddress` 校验，点选与手动输入共用同一保存与重启扫描路径；即使 12 秒内零命中也会弹出输入框而非直接退出。全程无 GATT 连接/配对行为。
+- **v1.9.12** — 全盘审核修复 5 项，`versionCode 41`。① Root 导入 su 超时保护失效与 stdout/stderr 双流死锁：改为并发读两流 + `waitFor(30s)` 超时在前 + 有限 join 收尾；② 一键启动步骤1 把 `unlocked==null`（门态未知）当「未锁」下发 lock：改为三态判定直接终止；③ API 解析出全空车况（started/unlocked/mileage 全缺）不再当成功污染缓存；④ BLE 自愈重启 `startScanInternal(true)`→`false`，不再误重置 present、作废蓝牙重开宽限期；⑤ 移除 `USE_EXACT_ALARM`，保留 `SCHEDULE_EXACT_ALARM` + 代码降级。
+- **v1.9.8（稳定基线）** — 主界面新增指令日志查看，`versionCode 37`。底部固定「查看指令日志」按钮，点击弹窗显示已落盘的控车日志（指令发出/成功/失败、一键启动各步骤、BLE 靠近/离开判定、主界面提示），最新在前、最多 200 条、可一键清空。日志同时保留 logcat 输出；不含 token 等凭证。实现：新增 `CtrlLog`（SharedPreferences 环形缓冲）+ `MzdApp`（全局 Context），`CarActions`/`MainActivity` 的日志统一改走 `CtrlLog`。
 - **v1.9.7** — 依据真实网络实测校准时间间隔，`versionCode 36`。实测结论（见《服务器car-status刷新间隔实测报告-20261118.md》）：服务器对 `/car/status` 无硬性限流（0 间隔/16 并发全 200），但回源约 1.17s、车况约 10s 台阶上报；解锁/上锁指令发出后车况 `lock` 字段平均 7.25s/6.75s、峰值 8.4s 才变化。**改动**：① 一键启动步骤3解锁重发窗口 15s→20s（原值对峰值回显偏紧，易在车已解锁时误重发），与步骤1的 20s 及桌面快刷窗口一致；② 修正轮询注释「每2秒」→「每3秒」（代码一直是 3s）及已停用的 18s 兜底注释。其余间隔（WAIT_TIMEOUT 20s、MIN_GAP/FAST 3s、标准 10 分钟、BLE 10s 窗口/30-90s 离开阈值、START 30s、LOCK 20s）经实测验证均有足够余量，保持不动。
 - **v1.9.6** — 第五轮全盘复核（逻辑与冲突专项）修复 8 处，`versionCode 35`。①【严重·安全底线】engine 字段缺失/`engine:null` 时 `started` 为 null，原逻辑只拦 `started==true` 会穿透到「已锁→解锁」分支，可在行驶中开门；改为 BLE 靠近解锁要求 `started` 明确为 false（null 跳过待重试），离开上锁对称加固（null 不盲锁）。② `Api.getStatus` 排除 engine/lock 子字段的 JSON NULL，避免误判「未启动/已锁」。③ 切号竞态：`CarStateCache.queryOnce` 的代次与 token/carid 同临界区快照；桌面刷新改原子 `snapshotWithError()` 取代 cached+lastError 双读。④ 未登录时 BLE 早退补回调 false 复位 present；⑤ BLE 通知查询失败显示「车况获取失败」不再拿旧 JSON 冒充。M3（确定性跳过后 present 锁死）、M4（抢窗与发指令时刻解耦）等状态机时序优化列入取舍未动，详见第五轮复核报告。
 - **v1.9.5** — 第四轮全盘复核修复 6 处，`versionCode 34`。① **BLE 服务静默停摆（高）**：`hasPermission()` 在 API31+ 漏检 `BLUETOOTH_CONNECT`、`isEnabled()` 三处无 try-catch、看门狗抛异常后不自调度；改为同时校验两权限、新增 `isBtOn()` 统一兜底、看门狗 `run()` 加 try/finally 保证 `postDelayed` 必执行。② **车况不可用误判「已锁」**：`Api.getStatus()` 的 lock 子字段全缺时被当成「已锁」绕过不可用保护；改为至少一个门字段存在才写 unlocked。③ **切号旧车况冒充（安全底线）**：全局缓存引入 `epoch` 代次，`invalidate()` 递增后丢弃在途旧凭证查询结果。④ **凭证来源显示错误**：`saveToken()` 清理 password/phone/userid，切 Token 后不再永远显示「账号登录」。⑤ **CredFile 输出流泄漏**：try-with-resources + IS_PENDING 复位进 finally。⑥ **picked 并发 / 输入阈值跳变**：设备表改 ConcurrentHashMap，RSSI/离开秒数仅合法值才落盘。未改取舍（离开上锁失败不重试、诊断计数口径）详见第四轮复核报告。

@@ -20,10 +20,15 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.graphics.Typeface;
@@ -31,6 +36,7 @@ import android.view.ViewGroup;
 import android.util.Log;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,17 +81,33 @@ public class MainActivity extends Activity {
                 try { name = d.getName(); } catch (SecurityException ignored) { }
             }
             final String n = (name == null ? "" : name);
-            String old = picked.get(mac);
-            if (old == null || !n.isEmpty()) picked.put(mac, n); // 有效名称不被后续空包覆盖
+            PickedDevice old = picked.get(mac);
+            String keepName = (old == null || old.name == null || old.name.isEmpty()) ? n : old.name;
+            // 有效名称不被后续空包覆盖；RSSI 取最近一次。整体 put 新对象，
+            // 借助 ConcurrentHashMap.put 的 happens-before 保证 binder 线程写、
+            // 主线程读时可见（原先 get 再改对象字段的方式无可见性保证）。
+            picked.put(mac, new PickedDevice(mac, keepName, result.getRssi()));
         }
         @Override public void onScanFailed(int errorCode) {
             ui.post(() -> logMsg("BLE 扫描失败（code=" + errorCode + "）"));
         }
     };
+    /** 选设备弹窗条目：RSSI 为 dBm 负数，越大（越接近 0）信号越强 */
+    private static class PickedDevice {
+        final String mac;
+        final String name;
+        final int rssi;
+        PickedDevice(String mac, String name, int rssi) {
+            this.mac = mac;
+            this.name = name;
+            this.rssi = rssi;
+        }
+    }
     // v1.9.5：BLE 扫描回调在 binder 线程写、主线程读/clear，改用并发容器杜绝
     // ConcurrentModificationException / 可见性问题（原 LinkedHashMap 跨线程无同步）。
-    private final ConcurrentHashMap<String, String> picked = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PickedDevice> picked = new ConcurrentHashMap<>();
     private ProgressDialog pickDialog;
+    private AlertDialog pickResultDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -412,34 +434,68 @@ public class MainActivity extends Activity {
             // 否则以已销毁 Activity 为 Context show() 会抛 BadTokenException 崩溃。
             if (isFinishing() || isDestroyed()) return;
             stopPickScan();
-            final List<String> macs = new ArrayList<>(picked.keySet());
-            if (macs.isEmpty()) {
-                logMsg("附近没扫到 BLE 设备，让设备保持广播/亮屏后再试");
-                return;
+
+            final List<PickedDevice> devs = new ArrayList<>(picked.values());
+            // RSSI 是 dBm 负数：-40 强于 -80，按 rssi 降序即信号从强到弱
+            Collections.sort(devs, (a, b) -> Integer.compare(b.rssi, a.rssi));
+            List<String> labels = new ArrayList<>();
+            for (PickedDevice d : devs) {
+                String name = (d.name == null || d.name.isEmpty()) ? "未知设备" : d.name;
+                labels.add(name + "  [" + d.rssi + " dBm]\n" + d.mac);
             }
-            CharSequence[] items = new CharSequence[macs.size()];
-            for (int i = 0; i < macs.size(); i++) {
-                String mac = macs.get(i);
-                String n = picked.get(mac);
-                items[i] = (n == null || n.isEmpty() ? "未知设备" : n) + "\n" + mac;
-            }
-            new android.app.AlertDialog.Builder(MainActivity.this)
+            // 即使一个都没扫到也弹窗，让用户在下方手动输入（不再直接 return）
+            if (labels.isEmpty()) logMsg("附近没扫到 BLE 设备，可在下方手动输入 MAC");
+
+            View pickView = LayoutInflater.from(MainActivity.this)
+                    .inflate(R.layout.dialog_pick_device, null);
+            ListView lv = pickView.findViewById(R.id.lv_pick_devices);
+            EditText etMac = pickView.findViewById(R.id.et_pick_mac);
+            EditText etName = pickView.findViewById(R.id.et_pick_name);
+            lv.setAdapter(new ArrayAdapter<>(MainActivity.this,
+                    android.R.layout.simple_list_item_1, labels));
+
+            final AlertDialog dlg = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("选择触发设备（BLE 扫描，无需连接）")
-                    .setItems(items, (DialogInterface dialog, int which) -> {
-                        String mac = macs.get(which);
-                        String n = picked.get(mac);
-                        Prefs.saveBtDevice(MainActivity.this, mac, n == null ? "" : n);
-                        refreshBtDeviceText();
-                        logMsg("已选择：" + (n == null || n.isEmpty() ? mac : n));
-                        if (Prefs.btEnabled(MainActivity.this)) {
-                            Prefs.setBleUnlockLatched(MainActivity.this, false);
-                            stopBleScanService();
-                            startBleScanService();
-                        }
-                    })
+                    .setView(pickView)
+                    .setPositiveButton("使用输入", null) // 先占位，下方 OnShowListener 拦截并校验
                     .setNegativeButton("取消", null)
-                    .show();
+                    .create();
+            pickResultDialog = dlg;
+            // 列表点选：直接选中该设备（顺序与排序后的列表一致）
+            lv.setOnItemClickListener((AdapterView<?> parent, View view, int pos, long id) -> {
+                PickedDevice d = devs.get(pos);
+                applyPickedDevice(d.mac, d.name);
+                dlg.dismiss();
+            });
+            // 手动输入：MAC 必填且格式合法才保存；校验失败保持弹窗不关闭
+            dlg.setOnShowListener(dialog -> dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+                    .setOnClickListener(v -> {
+                        String mac = etMac.getText().toString().trim();
+                        if (mac.isEmpty()) {
+                            etMac.setError("请从上方列表选择，或手动输入 MAC");
+                            return;
+                        }
+                        if (!BluetoothAdapter.checkBluetoothAddress(mac)) {
+                            etMac.setError("MAC 格式不正确，示例 AA:BB:CC:DD:EE:FF");
+                            return;
+                        }
+                        applyPickedDevice(mac, etName.getText().toString().trim());
+                        dlg.dismiss();
+                    }));
+            dlg.show();
         }, BLE_PICK_MS);
+    }
+
+    /** 统一落盘选中设备：列表点选与手动输入共用同一路径，必要时重启后台扫描服务 */
+    private void applyPickedDevice(String mac, String name) {
+        Prefs.saveBtDevice(this, mac, name == null ? "" : name);
+        refreshBtDeviceText();
+        logMsg("已选择：" + (name == null || name.isEmpty() ? mac : name));
+        if (Prefs.btEnabled(this)) {
+            Prefs.setBleUnlockLatched(this, false);
+            stopBleScanService();
+            startBleScanService();
+        }
     }
 
     private void stopPickScan() {
@@ -474,6 +530,9 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         stopPickScan();
+        if (pickResultDialog != null && pickResultDialog.isShowing()) {
+            try { pickResultDialog.dismiss(); } catch (Exception ignored) { }
+        }
         // 清掉选设备延迟任务及其它待执行 UI 回调，避免用已销毁 Activity 弹窗/更新导致崩溃
         ui.removeCallbacksAndMessages(null);
         super.onDestroy();
