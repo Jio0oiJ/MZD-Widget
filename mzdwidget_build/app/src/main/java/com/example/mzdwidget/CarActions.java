@@ -1,6 +1,7 @@
 package com.example.mzdwidget;
 
 import android.content.Context;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -210,8 +211,11 @@ public final class CarActions {
     private static Api.CarState poll(Context c, String phase, long retryMs, int maxRetry,
                                      StateMatch match, Resend onTimeout) throws Exception {
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
-            long roundStart = System.currentTimeMillis();
-            while (System.currentTimeMillis() - roundStart < retryMs) {
+            // 全盘审核修复：改用单调时钟。墙钟会被 NTP 校正/用户手动改时间影响，
+            // 向前跳变会导致本轮提前结束、提前重发指令；向后跳变会让计时停滞、卡在单轮循环。
+            // 与 CarStateCache 的计时口径统一为 elapsedRealtime()。
+            long roundStart = SystemClock.elapsedRealtime();
+            while (SystemClock.elapsedRealtime() - roundStart < retryMs) {
                 // v1.9.2：每轮首查失败先重试一次，第二轮仍失败才终止（不重发指令、不进下一步）
                 Api.CarState s = queryWithRetry(c, phase + "[第" + (attempt + 1) + "轮]");
                 if (s == null) {
