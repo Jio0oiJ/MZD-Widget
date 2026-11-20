@@ -3,6 +3,7 @@ package com.example.mzdwidget;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.util.Log;
 
 /**
@@ -23,22 +24,29 @@ public class WidgetActions extends BroadcastReceiver {
         final Context app = context.getApplicationContext();
 
         if (CarWidget.ACTION_SMART_START.equals(action)) {
-            // v1.8.5 状态确认式三步流程：确认已锁 → 发启动并确认 → 发解锁并确认。
-            // 每步 3 秒轮询车况、相邻请求硬节流 ≥3 秒，桌面由 query() 复用结果刷新；
-            // 不再启动快刷 tick、不再重复查网。
-            CarWidget.clearSmartUnlockDone(app);
-            // 旧版 18 秒兜底闹钟会在步骤2等待期间误补发解锁，必须先清掉；
-            // 新的确认+重发机制已在 CarActions 内部保证，无需兜底调度。
-            CarWidget.cancelSmartUnlockFallback(app);
-            final PendingResult pending = goAsync();
-            new Thread(() -> {
-                try {
-                    CarActions.smartStartAndUnlock(app, (ok, msg) -> Log.i(TAG, "一键启动结果=" + msg));
-                    CarWidget.redraw(app);
-                } finally {
-                    pending.finish();
-                }
-            }, "mzd-smart").start();
+            // v1.9.14：三步状态机最长 70 秒以上，放 goAsync 里会超广播 ANR 时限，
+            // 系统弹「应用无响应」（任务本身仍能跑完）。改由前台服务承载，广播立即结束。
+            // 前置清理一并移到 ActionService 内，只有真正开始执行时才清。
+            try {
+                Intent svc = new Intent(app, ActionService.class);
+                svc.setAction(ActionService.ACTION_SMART_START);
+                if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(svc);
+                else app.startService(svc);
+            } catch (Exception e) {
+                // 个别机型拒绝从后台启动前台服务：退化为普通线程，广播仍立即结束，不弹 ANR
+                Log.w(TAG, "前台服务启动失败，退化为后台线程：" + e.getMessage());
+                new Thread(() -> {
+                    try {
+                        CarWidget.clearSmartUnlockDone(app);
+                        CarWidget.cancelSmartUnlockFallback(app);
+                        CarActions.smartStartAndUnlock(app,
+                                (ok, msg) -> Log.i(TAG, "一键启动结果=" + msg));
+                        CarWidget.redraw(app);
+                    } catch (Exception ex) {
+                        Log.e(TAG, "一键启动异常：" + ex.getMessage());
+                    }
+                }, "mzd-smart-fallback").start();
+            }
             return;
         }
         if (CarWidget.ACTION_SMART_UNLOCK.equals(action)) {
