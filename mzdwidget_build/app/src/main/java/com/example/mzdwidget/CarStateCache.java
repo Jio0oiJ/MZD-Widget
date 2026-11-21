@@ -228,6 +228,22 @@ public final class CarStateCache {
                 // 但仍推进 doneSeq，避免等待者白等到超时。lastError 也不覆盖（切号已清空）。
                 Log.w(TAG, "【全局车况】凭证已变更，丢弃在途旧结果（序号=" + target + "）");
             } else if (ok) {
+                // v1.9.16：指令发出后快刷确认门态「真实翻转」= 控车成功 → 提示音。
+                // 解锁(false→true)响一声，上锁(true→false)响两声。
+                // 仅在前后两轮门态都明确且确实翻转时响：首轮/切号后(cached=null)、
+                // 字段缺失(null)、门态无变化都不响，避免把初始状态或旧值误报成成功。
+                // stale 分支不会走到这里，故切号在途旧结果也不会误响。
+                Api.CarState prev = cached;
+                if (prev != null && prev.unlocked != null && s.unlocked != null
+                        && !prev.unlocked.equals(s.unlocked)) {
+                    if (Boolean.TRUE.equals(s.unlocked)) {
+                        Log.i(TAG, "【提示音】门态翻转 锁定→解锁，响一声");
+                        BeepHelper.playUnlock();
+                    } else {
+                        Log.i(TAG, "【提示音】门态翻转 解锁→锁定，响两声");
+                        BeepHelper.playLock();
+                    }
+                }
                 cached = copy(s);
                 successSeq = Math.max(successSeq, target);
                 lastError = null;
