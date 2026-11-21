@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">MZD 控车小组件</string>
     <string name="widget_name">MZD 控车</string>
+    <string name="accessibility_desc">仅用于提升本 App 进程优先级以维持 BLE 自动控车保活；不读取屏幕内容、不模拟点击、不参与控车判定。无需时可在系统设置中关闭。</string>
 </resources>

@@ -284,6 +284,17 @@
                 android:text="启用 BLE 扫描自动控车" android:textSize="14sp"
                 android:layout_marginTop="8dp" />
 
+            <Button android:id="@+id/btn_accessibility"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="无障碍保活：点击去授权（可选）" android:textSize="13sp"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="#607080" android:textColor="#FFFFFF" />
+
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="可选：开启后仅用于保活（不读屏幕、不模拟点击）。部分机型后台会杀进程，开启可减少被回收；不想授权可忽略，前台服务本身已在保活。"
+                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
+
             <View android:layout_width="match_parent" android:layout_height="1dp"
                 android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
 

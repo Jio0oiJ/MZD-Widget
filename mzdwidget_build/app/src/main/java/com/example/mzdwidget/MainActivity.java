@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
     private EditText etPhone, etPass, etToken, etCarid;
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi;
-    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog;
+    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility;
     private CheckBox cbBtEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -147,6 +147,22 @@ public class MainActivity extends Activity {
         btnRootImport = findViewById(R.id.btn_root_import);
         cbBtEnable = findViewById(R.id.cb_bt_enable);
         btnPickBt = findViewById(R.id.btn_pick_bt);
+        btnAccessibility = findViewById(R.id.btn_accessibility);
+        refreshAccessibilityButton();
+        btnAccessibility.setOnClickListener(v -> {
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("无障碍保活（可选）")
+                    .setMessage("开启后跳转系统无障碍设置，找到「MZD 控车小组件」并打开。\n\n本 App 的无障碍服务仅用于保活：不读取屏幕内容、不模拟点击、不参与控车判定。不想授权可忽略，前台服务本身已在保活。")
+                    .setPositiveButton("去设置", (d, w) -> {
+                        try {
+                            startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                        } catch (Exception e) {
+                            logMsg("无法打开无障碍设置：" + e.getMessage());
+                        }
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+        });
         tvBtDevice = findViewById(R.id.tv_bt_device);
         tvBleDiag = findViewById(R.id.tv_ble_diag);
         refreshBleDiagText();
@@ -363,6 +379,20 @@ public class MainActivity extends Activity {
 
     private static String hex(int argb) {
         return String.format("#%06X", argb & 0xFFFFFF);
+    }
+
+    /** 无障碍保活按钮状态：从系统设置返回后需实时刷新 */
+    private void refreshAccessibilityButton() {
+        if (btnAccessibility == null) return;
+        boolean on = MzdAccessibilityService.isEnabled(this);
+        btnAccessibility.setText(on ? "无障碍保活：已开启（点击去关闭）" : "无障碍保活：未开启（点击去授权，可选）");
+        btnAccessibility.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                on ? 0xFF1B8A5A : 0xFF607080));
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        refreshAccessibilityButton();
     }
 
     private void refreshBtDeviceText() {

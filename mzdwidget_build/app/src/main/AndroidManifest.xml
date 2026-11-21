@@ -76,6 +76,20 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 可选的无障碍保活：仅系统绑定提升进程优先级 + 低频补启 BLE，不读屏幕/不点击。
+             用户需到系统设置手动授权；BIND_ACCESSIBILITY_SERVICE 由系统签名权限保护。 -->
+        <service
+            android:name=".MzdAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
+
         <!-- 开机后若开关仍打开，自动恢复 BLE 扫描 -->
         <receiver
             android:name=".BleBootReceiver"
