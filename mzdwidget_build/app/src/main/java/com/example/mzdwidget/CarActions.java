@@ -60,6 +60,9 @@ public final class CarActions {
         try {
             Api.control(Prefs.token(c), carid, cmd, bootTime);
             CtrlLog.i(TAG,"【指令成功】cmd=" + cmd + " 触发=" + reason);
+            // v1.9.17：仅解锁/上锁登记提示音期望，由 CarStateCache 快刷确认目标门态后响一次。
+            // 指令真正被服务器接受才登记，失败不登记；start/stall/search 不参与提示音。
+            CarStateCache.get(c).expectCommand(cmd);
         } catch (Exception e) {
             CtrlLog.e(TAG,"【指令失败】cmd=" + cmd + " 触发=" + reason + " 原因=" + shortErr(e));
             throw e;

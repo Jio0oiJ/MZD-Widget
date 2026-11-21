@@ -43,6 +43,15 @@ public final class CarStateCache {
     private long successSeq;        // 最近一次成功完成的请求序号
     private volatile long epoch;    // 凭证/车辆代次：invalidate 时递增，在途旧请求据此丢弃结果
 
+    // v1.9.17：提示音改为「指令期望确认」驱动。
+    // 旧版只比较前后两轮缓存门态，冷启动缓存为空、切号、或指令前后门态恰好相同都不响；
+    // 发动机启动态下这些问题更明显。现在由指令入口登记期望，快刷一旦确认目标门态即响，
+    // 且一条指令只响一次；超时未确认则不响并写日志说明原因。
+    private static final long BEEP_EXPECT_TIMEOUT_MS = 60000L;
+    private String beepExpectCmd;   // Api.CMD_UNLOCK / Api.CMD_LOCK，null=无待确认提示音
+    private long beepExpectAt;      // elapsedRealtime 登记时刻
+    private long beepExpectEpoch;   // 登记时代次，切号后作废
+
     private CarStateCache() {}
 
     public static CarStateCache get(Context c) {
@@ -156,10 +165,28 @@ public final class CarStateCache {
         synchronized (lock) {
             cached = null;
             lastError = null;
+            // v1.9.17：切号/换车时把待确认的提示音期望一并作废，防止上账号的指令在新账号车上响。
+            beepExpectCmd = null;
             // v1.9.5：递增代次。已发出但仍在飞行中的旧凭证查询回来后，
             // 发现 epoch 已变，会把结果丢弃——绝不把上一个账号/车的车况写回来冒充实时。
             epoch++;
         }
+    }
+
+    /**
+     * v1.9.17：指令成功发出后登记提示音期望。
+     * 解锁期望 unlocked==true，上锁期望 unlocked==false；快刷首次确认到目标门态即响一次。
+     * 仅对解锁/上锁登记，start/stall/search 等不响。重复登记以最后一次为准（符合"最后一次指令"直觉）。
+     */
+    public void expectCommand(String cmd) {
+        if (cmd == null || (!Api.CMD_UNLOCK.equals(cmd) && !Api.CMD_LOCK.equals(cmd))) return;
+        synchronized (lock) {
+            beepExpectCmd = cmd;
+            beepExpectAt = SystemClock.elapsedRealtime();
+            beepExpectEpoch = epoch;
+        }
+        CtrlLog.i(TAG, "【提示音】已登记指令期望：" + (Api.CMD_UNLOCK.equals(cmd) ? "解锁" : "上锁")
+                + "，等待快刷确认目标门态");
     }
 
     /** 工作线程主循环：按当前模式计算下一次查询时机，串行发请求。 */
@@ -228,20 +255,28 @@ public final class CarStateCache {
                 // 但仍推进 doneSeq，避免等待者白等到超时。lastError 也不覆盖（切号已清空）。
                 Log.w(TAG, "【全局车况】凭证已变更，丢弃在途旧结果（序号=" + target + "）");
             } else if (ok) {
-                // v1.9.16：指令发出后快刷确认门态「真实翻转」= 控车成功 → 提示音。
-                // 解锁(false→true)响一声，上锁(true→false)响两声。
-                // 仅在前后两轮门态都明确且确实翻转时响：首轮/切号后(cached=null)、
-                // 字段缺失(null)、门态无变化都不响，避免把初始状态或旧值误报成成功。
-                // stale 分支不会走到这里，故切号在途旧结果也不会误响。
-                Api.CarState prev = cached;
-                if (prev != null && prev.unlocked != null && s.unlocked != null
-                        && !prev.unlocked.equals(s.unlocked)) {
-                    if (Boolean.TRUE.equals(s.unlocked)) {
-                        Log.i(TAG, "【提示音】门态翻转 锁定→解锁，响一声");
-                        BeepHelper.playUnlock();
-                    } else {
-                        Log.i(TAG, "【提示音】门态翻转 解锁→锁定，响两声");
-                        BeepHelper.playLock();
+                // v1.9.17：提示音由「指令期望」驱动——指令成功发出后 expectCommand() 登记目标门态，
+                // 快刷首次读到目标门态即响一次。修复 v1.9.16 只比较前后两轮缓存的缺陷：
+                // 冷启动/切号后 cached=null、指令前后门态恰好相同（例如启动态下门态未即时回显）、
+                // 或中间有其它查询先更新了缓存，都会让旧逻辑静默不响。当前口径覆盖：
+                //   手动按钮 / BLE 靠近自动解锁 / 离开自动上锁 / 一键启动各步（都经 CarActions.send）。
+                // 只在期望存在、代次未变、门态明确命中目标且未超时（60 秒）时响；响完立即清空期望。
+                // 门态仍为旧值或未知时保留期望继续等下一轮快刷，直到命中或超时。
+                if (beepExpectCmd != null && beepExpectEpoch == myEpoch && s.unlocked != null) {
+                    String cmd = beepExpectCmd;
+                    boolean wantUnlock = Api.CMD_UNLOCK.equals(cmd);
+                    boolean hit = wantUnlock ? Boolean.TRUE.equals(s.unlocked)
+                            : Boolean.FALSE.equals(s.unlocked);
+                    if (hit) {
+                        beepExpectCmd = null;
+                        CtrlLog.i(TAG, "【提示音】指令快刷确认成功：" + (wantUnlock ? "解锁→响一声" : "上锁→响两声")
+                                + " 门态=" + s.unlocked);
+                        if (wantUnlock) BeepHelper.playUnlock();
+                        else BeepHelper.playLock();
+                    } else if (SystemClock.elapsedRealtime() - beepExpectAt > BEEP_EXPECT_TIMEOUT_MS) {
+                        CtrlLog.w(TAG, "【提示音】指令期望超时 60 秒未确认门态：" + cmd
+                                + "，不响（当前门态=" + s.unlocked + "）");
+                        beepExpectCmd = null;
                     }
                 }
                 cached = copy(s);
