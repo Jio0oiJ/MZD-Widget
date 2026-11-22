@@ -806,14 +806,23 @@ public class BleScanService extends Service {
         String label = deviceLabel();
         String state = present ? "在附近" : "已离开";
         String title = "BLE · " + label + " · " + state;
-        int threshold = Prefs.btRssiThreshold(c);
-        boolean strongEnough = hasRssi && lastRssi != 127 && lastRssi >= threshold;
-        String rssi = hasRssi ? (lastRssi + " dBm · " + signalWord(lastRssi)
-                + (strongEnough ? " · 达标" : " · 未达标")) : "暂无信号数据";
+        // v1.9.23：折叠行原用「单帧 RSSI >= 解锁阈值」判达标，与真实判定（10 点去抖均值 +
+        // 双阈值 + 斜率）口径不一致，临界抖动时会显示相反结论。改用去抖均值，无均值时只报单帧不带结论。
+        String rssi;
+        if (!Float.isNaN(lastSmoothRssi)) {
+            int unlockT = Prefs.btRssiThreshold(c);
+            rssi = "均值 " + Math.round(lastSmoothRssi) + " dBm / 解锁 " + unlockT
+                    + (lastSmoothRssi >= unlockT ? " · 达标" : " · 未达标");
+        } else if (hasRssi) {
+            rssi = lastRssi + " dBm · " + signalWord(lastRssi) + "（均值采集中）";
+        } else {
+            rssi = "暂无信号数据";
+        }
         String seen = lastSeen > 0 ? ago(now - lastSeen) + "前可见" : "尚未发现";
         String content = rssi + " · " + seen
                 + (wifiConnected ? " · WiFi 暂停扫描" : (screenOn ? "" : " · 熄屏"));
 
+        int threshold = Prefs.btRssiThreshold(c); // 展开行仍显示解锁阈值
         StringBuilder big = new StringBuilder();
         big.append("设备：").append(label);
         if (mac != null && !mac.isEmpty()) big.append("  (").append(mac).append(")");
@@ -865,9 +874,11 @@ public class BleScanService extends Service {
     private String guardText(long now) {
         if (wifiConnected) return "已连接 WiFi · BLE 扫描暂停（省电），离开判定冻结";
         if (lastSeen <= 0) return "尚未发现目标 · 去抖趋势判定未开始";
+        // v1.9.23：只客观描述斜率方向，不写「可上锁」这类结论——真实动作还要同时看
+        // 去抖均值落在解锁/上锁阈值的哪一侧，单看斜率会在 -0.5~0 之间给出与判定相反的结论。
         String trend = Float.isNaN(lastSlope) ? "样本累积中"
                 : (lastSlope > SLOPE_EPS ? "信号走强"
-                    : (lastSlope < -LOCK_SLOPE_EPS ? "信号走弱（可上锁）" : "信号持平"));
+                    : (lastSlope < -LOCK_SLOPE_EPS ? "信号走弱" : "信号持平"));
         return "去抖趋势 · 0.3 秒采样 / " + AVG_POINTS + " 点均值 / " + trend
                 + (screenOn ? "" : " · 熄屏中");
     }

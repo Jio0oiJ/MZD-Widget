@@ -84,9 +84,10 @@ public final class CredFile {
             File dir = new File(Environment.getExternalStorageDirectory(), REL_DIR);
             if (!dir.exists() && !dir.mkdirs()) throw new Exception("无法创建目录 " + dir);
             File f = new File(dir, FILE_NAME);
-            FileOutputStream fos = new FileOutputStream(f, false);
-            fos.write(enc);
-            fos.close();
+            // v1.9.23：try-with-resources，write 抛异常时也关闭 fd（与 MediaStore 路径一致）。
+            try (FileOutputStream fos = new FileOutputStream(f, false)) {
+                fos.write(enc);
+            }
             Log.i(TAG, "凭证已导出（直写）：" + f.getAbsolutePath());
         } catch (Exception e) {
             Log.e(TAG, "直写凭证失败", e);

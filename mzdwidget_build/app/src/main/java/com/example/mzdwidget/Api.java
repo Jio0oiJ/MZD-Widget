@@ -215,7 +215,14 @@ public final class Api {
      */
     private static Integer optIntFlexible(Object v) {
         if (v == null || v == JSONObject.NULL || v instanceof Boolean) return null;
-        if (v instanceof Number) return ((Number) v).intValue();
+        if (v instanceof Number) {
+            // v1.9.23：Number 分支与下面的字符串路径口径统一——带小数的数值（如 2.9）
+            // 不得被 intValue() 截断成 2（会把 started 误判成未启动）。只接受整数值。
+            double d = ((Number) v).doubleValue();
+            if (!Double.isFinite(d) || d != Math.rint(d)) return null;
+            if (d < Integer.MIN_VALUE || d > Integer.MAX_VALUE) return null;
+            return Integer.valueOf((int) d);
+        }
         String s = String.valueOf(v).trim();
         if (s.isEmpty()) return null;
         try {
@@ -224,7 +231,11 @@ public final class Api {
             try {
                 double d = Double.parseDouble(s);
                 // 仅接受整数值的浮点字符串（如 "3.0"），避免 "3.7" 被截断成 3 误判启动。
-                return (d == Math.rint(d)) ? Integer.valueOf((int) d) : null;
+                // v1.9.23：与 Number 分支口径统一，补 isFinite + int 范围校验，
+                // 防 "Infinity"/"2147483648" 等超范围字符串强转溢出误判。
+                if (!Double.isFinite(d) || d != Math.rint(d)
+                        || d < Integer.MIN_VALUE || d > Integer.MAX_VALUE) return null;
+                return Integer.valueOf((int) d);
             } catch (NumberFormatException ignored) {
                 return null;
             }

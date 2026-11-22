@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     private EditText etPhone, etPass, etToken, etCarid;
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
+    private boolean updatingThresholdUi = false; // v1.9.23：阈值输入框互相刷新时防 TextWatcher 重入
     private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility;
     private CheckBox cbBtEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -231,12 +232,18 @@ public class MainActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void afterTextChanged(Editable s) {
+                if (updatingThresholdUi) return; // v1.9.23：程序化回写不触发另一路解析
                 // v1.9.5：同离开秒数——只在合法范围 -100~-30 内才落盘。
                 // 输入 "-7" 的瞬间不再被 clamp 成 -30（极近）落盘，避免阈值随击键跳变、
                 // 中间态误触发 BLE 靠近判定。非法/中间态保留旧值。
                 try {
                     int v = Integer.parseInt(s.toString().trim());
-                    if (v >= -100 && v <= -30) Prefs.setBtRssiThreshold(MainActivity.this, v);
+                    if (v >= -100 && v <= -30) {
+                        Prefs.setBtRssiThreshold(MainActivity.this, v);
+                        // v1.9.23：解锁阈值调低会连带钳低下锁阈值，同步刷新上锁输入框，
+                        // 避免「输入框显示旧值 / 实际已钳制」的不一致。
+                        refreshLockRssiInput();
+                    }
                 } catch (NumberFormatException ignored) { }
             }
         });
@@ -249,9 +256,20 @@ public class MainActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void afterTextChanged(Editable s) {
+                if (updatingThresholdUi) return;
                 try {
                     int v = Integer.parseInt(s.toString().trim());
-                    if (v >= -100 && v <= -30) Prefs.setBtLockRssiThreshold(MainActivity.this, v);
+                    if (v >= -100 && v <= -30) {
+                        Prefs.setBtLockRssiThreshold(MainActivity.this, v);
+                        // 写回生效值（可能已被解锁阈值钳制），让输入框显示与判定一致
+                        int effective = Prefs.btLockRssiThreshold(MainActivity.this);
+                        if (effective != v) {
+                            updatingThresholdUi = true;
+                            etBtLockRssi.setText(String.valueOf(effective));
+                            etBtLockRssi.setSelection(etBtLockRssi.getText().length());
+                            updatingThresholdUi = false;
+                        }
+                    }
                 } catch (NumberFormatException ignored) { }
             }
         });
@@ -270,7 +288,11 @@ public class MainActivity extends Activity {
                 return;
             }
             if (checked && (Prefs.btMac(this) == null || Prefs.btMac(this).isEmpty())) {
+                // v1.9.23：与权限回弹一致，用标志位屏蔽 setChecked(false) 触发的伪事件，
+                // 否则会递归进入监听器误停服务、误记「已关闭」日志（用户本意是开启）。
+                suppressBtToggle = true;
                 cbBtEnable.setChecked(false);
+                suppressBtToggle = false;
                 logMsg("请先扫描并选择一个 BLE 设备");
                 return;
             }
@@ -439,6 +461,18 @@ public class MainActivity extends Activity {
                 .setCancelable(true)
                 .show();
         CtrlLog.i(TAG, "【低电压】警示窗已显示：" + String.format("%.1f", voltage) + "V");
+    }
+
+    /** v1.9.23：解锁阈值变化后，同步刷新上锁输入框为钳制后的生效值。 */
+    private void refreshLockRssiInput() {
+        if (etBtLockRssi == null) return;
+        String effective = String.valueOf(Prefs.btLockRssiThreshold(this));
+        if (!effective.equals(etBtLockRssi.getText().toString())) {
+            updatingThresholdUi = true;
+            etBtLockRssi.setText(effective);
+            etBtLockRssi.setSelection(etBtLockRssi.getText().length());
+            updatingThresholdUi = false;
+        }
     }
 
     private void refreshBtDeviceText() {

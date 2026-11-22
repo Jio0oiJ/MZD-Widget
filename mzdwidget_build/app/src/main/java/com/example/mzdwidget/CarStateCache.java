@@ -158,6 +158,24 @@ public final class CarStateCache {
         }
     }
 
+    /**
+     * v1.9.23：原子版桌面刷新——「取缓存 + 校验代次 + 写盘回调」在同一临界区内完成，与 invalidate() 串行。
+     * 原 refreshAndUpdate 走 snapshotWithError() 取快照后释放锁、再在锁外 publishStatus 写盘，
+     * 中间可插入切号（invalidate epoch++ + clearStatus 清桌面），旧车况被写回已清空的桌面。
+     * 本方法把写盘纳入锁内：
+     *   · 切号先拿锁 → 本方法随后拿锁见 cached 已清空，回调不触发；
+     *   · 本方法先拿锁写盘 → 切号随后 invalidate+clearStatus，最终桌面仍是清空的。
+     * 回调只做 SharedPreferences.commit + updateAppWidget（与 queryOnce:onGlobalStatus 同一路径，
+     * 不回调本类锁），不会死锁。返回 true=已写盘，false=缓存空/有错/切号，调用方按需自行重绘。
+     */
+    public boolean publishStatusAtomically(final CarWidget.Publisher publisher) {
+        synchronized (lock) {
+            if (cached == null || lastError != null) return false;
+            publisher.publish(copy(cached));
+            return true;
+        }
+    }
+
     public static final class Snapshot {
         public final Api.CarState state;
         public final String error;
@@ -211,6 +229,7 @@ public final class CarStateCache {
             Double alarmVoltage = null;
             String windowLog = null;
             boolean fireAlarm = false;
+            long alarmEpoch = -1L; // v1.9.23：报警判定时的代次，锁外播放前二次校验防切号误报
             synchronized (lock) {
                 while (true) {
                     long now = SystemClock.elapsedRealtime();
@@ -229,6 +248,7 @@ public final class CarStateCache {
                         if (hasFast && v != null && v < LOW_VOLTAGE_THRESHOLD) {
                             fireAlarm = true;
                             alarmVoltage = v;
+                            alarmEpoch = epoch; // 记录判定瞬间的代次
                         } else {
                             windowLog = "【低电压】快刷复核结束，"
                                     + (hasFast && v != null
@@ -257,10 +277,18 @@ public final class CarStateCache {
             // 弹窗/播放声音放在锁外，避免音频与 Activity 启动阻塞车况工作线程。
             if (windowLog != null) CtrlLog.i(TAG, windowLog);
             if (fireAlarm && alarmVoltage != null) {
-                CtrlLog.w(TAG, "【低电压】快刷复核确认电瓶电压 " + alarmVoltage + "V < "
-                        + LOW_VOLTAGE_THRESHOLD + "V：两声报警 + 弹出警示窗");
-                BeepHelper.playLock();
-                LowVoltageAlerter.show(alarmVoltage);
+                // v1.9.23：播放前二次校验代次。报警在锁内判定、锁外播放之间若发生切号
+                // （invalidate 递增 epoch 并清低电压状态），旧车的电压不能再到新账号上响铃弹窗。
+                boolean stillValid;
+                synchronized (lock) { stillValid = (alarmEpoch == epoch); }
+                if (stillValid) {
+                    CtrlLog.w(TAG, "【低电压】快刷复核确认电瓶电压 " + alarmVoltage + "V < "
+                            + LOW_VOLTAGE_THRESHOLD + "V：两声报警 + 弹出警示窗");
+                    BeepHelper.playLock();
+                    LowVoltageAlerter.show(alarmVoltage);
+                } else {
+                    CtrlLog.i(TAG, "【低电压】报警播放前检测到切号，丢弃旧车电压报警");
+                }
             }
             queryOnce(myTarget);
         }
@@ -305,6 +333,14 @@ public final class CarStateCache {
         synchronized (lock) {
             lastQueryAt = SystemClock.elapsedRealtime();
             stale = (myEpoch != epoch);
+            // v1.9.23：提示音期望超时检查放在分支之外，每轮查询无条件执行——
+            // 无论本轮成功/失败、门态是否为 null，只要期望属于本代次且已超 60 秒就丢弃，
+            // 杜绝「门态长期缺失/查询持续失败后突然命中→迟到响」。切号(stale)时 invalidate 已清空期望。
+            if (beepExpectCmd != null && beepExpectEpoch == myEpoch
+                    && SystemClock.elapsedRealtime() - beepExpectAt > BEEP_EXPECT_TIMEOUT_MS) {
+                CtrlLog.w(TAG, "【提示音】指令期望超时 60 秒未确认（含门态未知/查询失败），不响：" + beepExpectCmd);
+                beepExpectCmd = null;
+            }
             if (stale) {
                 // 凭证已切换：丢弃本轮结果。successSeq 不推进 → refreshAndWait 的等待者按「未确认」处理；
                 // 但仍推进 doneSeq，避免等待者白等到超时。lastError 也不覆盖（切号已清空）。
@@ -339,6 +375,7 @@ public final class CarStateCache {
                 //   手动按钮 / BLE 靠近自动解锁 / 离开自动上锁 / 一键启动各步（都经 CarActions.send）。
                 // 只在期望存在、代次未变、门态明确命中目标且未超时（60 秒）时响；响完立即清空期望。
                 // 门态仍为旧值或未知时保留期望继续等下一轮快刷，直到命中或超时。
+                // v1.9.23：超时已在上面分支外无条件检查，这里只处理「明确命中目标门态」。
                 if (beepExpectCmd != null && beepExpectEpoch == myEpoch && s.unlocked != null) {
                     String cmd = beepExpectCmd;
                     boolean wantUnlock = Api.CMD_UNLOCK.equals(cmd);
@@ -349,10 +386,6 @@ public final class CarStateCache {
                         // v1.9.21：只置标志，播放挪到锁外，避免音频合成/播放阻塞工作线程持锁。
                         beepFire = true;
                         beepWantUnlock = wantUnlock;
-                    } else if (SystemClock.elapsedRealtime() - beepExpectAt > BEEP_EXPECT_TIMEOUT_MS) {
-                        CtrlLog.w(TAG, "【提示音】指令期望超时 60 秒未确认门态：" + cmd
-                                + "，不响（当前门态=" + s.unlocked + "）");
-                        beepExpectCmd = null;
                     }
                 }
                 cached = copy(s);

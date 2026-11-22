@@ -220,6 +220,11 @@ public class CarWidget extends AppWidgetProvider {
      * v1.9：桌面刷新入口改为读全局缓存快照，不再自己查网。
      * 缓存为空时触发一次后台查询，结果由 onGlobalStatus 回调写盘重绘。
      */
+    /** v1.9.23：供 CarStateCache 在锁内回调写盘的钩子（见 publishStatusAtomically）。 */
+    public interface Publisher {
+        void publish(Api.CarState s);
+    }
+
     static void refreshAndUpdate(Context c) {
         if (!Prefs.isLoggedIn(c)) {
             updateAll(c);
@@ -236,7 +241,10 @@ public class CarWidget extends AppWidgetProvider {
         // 此时绝不能 publishStatus——它会清空 KEY_STATUS_ERR，把失败提示抹掉、用旧车况冒充实时。
         // 只重绘保留失败提示；缓存工作线程会在下一轮成功后由 onGlobalStatus 自动恢复正常显示。
         if (s != null && !hasError) {
-            publishStatus(c, s);
+            // v1.9.23：写盘必须在锁内与 invalidate 串行。snapshotWithError 之后到 publishStatus
+            // 之前仍可能插入切号，导致旧车况写回已清空的桌面。改走原子版：取缓存+校验+写盘同一临界区。
+            boolean written = cache.publishStatusAtomically(state -> publishStatus(c, state));
+            if (!written) updateAll(c); // 期间切号/查询失败：不写盘，仅重绘当前（已清空/有错）状态
         } else if (s == null) {
             // 从未成功过（冷启动）：触发一次后台查询，重绘显示「正在获取」
             cache.trigger(c);

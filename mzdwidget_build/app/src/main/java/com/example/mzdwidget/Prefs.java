@@ -126,7 +126,14 @@ public final class Prefs {
     public static void setBtRssiThreshold(Context c, int dbm) {
         // 夹在 -100~-30：上限防误填 0/正数导致 rssi>=阈值 恒假（永远不解锁），
         // 下限防误填极小负数导致恒真（永远解锁）
-        btPrefs(c).edit().putInt(K_BT_RSSI, Math.max(-100, Math.min(-30, dbm))).apply();
+        int u = Math.max(-100, Math.min(-30, dbm));
+        // v1.9.23：归一化——解锁阈值调低时，若当前上锁阈值比它还高（更接近 0），
+        // 同步把存储的上锁阈值降下来，保证「存储值=生效值」，上锁输入框显示与判定一致。
+        android.content.SharedPreferences p = btPrefs(c);
+        int storedLock = p.getInt(K_BT_LOCK_RSSI, -78);
+        android.content.SharedPreferences.Editor e = p.edit().putInt(K_BT_RSSI, u);
+        if (storedLock > u) e.putInt(K_BT_LOCK_RSSI, u);
+        e.apply();
     }
 
     /**
@@ -135,11 +142,22 @@ public final class Prefs {
      * 这样靠近要在 -70 以上才解锁、离开要跌到 -78 以下才上锁，中间 -78~-70 是滞回区，
      * 避免临界点信号小幅抖动导致反复解锁/上锁。
      */
-    public static int btLockRssiThreshold(Context c) { return btPrefs(c).getInt(K_BT_LOCK_RSSI, -78); }
+    /**
+     * v1.9.23：读取时把上锁阈值钳制为「不高于解锁阈值」。
+     * 用户若经 UI 把上锁阈值填得比解锁阈值更接近 0（如 lock=-50、unlock=-70），
+     * 判定会出现重叠区（均值在 [-70,-50) 且斜率在 -0.5~-0.2 时解锁/上锁条件同时成立，
+     * 因先判解锁而在信号走弱时误解锁）。这里统一钳制，使 lock<=unlock 恒成立：
+     * 相等时退化为单阈值（靠斜率死区近似滞回），无重叠区，安全。
+     * 钳制放在 getter，判定/日志/通知栏/UI 全部自动取到同一有效值，不会各处口径不一致。
+     */
+    public static int btLockRssiThreshold(Context c) {
+        return Math.min(btPrefs(c).getInt(K_BT_LOCK_RSSI, -78), btRssiThreshold(c));
+    }
     public static void setBtLockRssiThreshold(Context c, int dbm) {
-        // 同样夹在 -100~-30。不强制 lock < unlock：用户可自行设置（若设成 >= 解锁阈值，
-        // 判定仍安全——上锁条件更严格或等价，最坏是两者相同退化为单阈值）。
-        btPrefs(c).edit().putInt(K_BT_LOCK_RSSI, Math.max(-100, Math.min(-30, dbm))).apply();
+        // v1.9.23：写入时就按当前解锁阈值归一化（存有效值），getter 再钳一次作双保险。
+        // 这样 sharPrefs 里存的永远=生效值，UI 输入框显示与判定口径一致，不会「显示-50/实际-70」。
+        int lock = Math.max(-100, Math.min(-30, dbm));
+        btPrefs(c).edit().putInt(K_BT_LOCK_RSSI, Math.min(lock, btRssiThreshold(c))).apply();
     }
 
     /* ===== 外观：品牌文字/颜色、车况文字颜色（独立存储，清凭证不重置） ===== */
