@@ -12,6 +12,8 @@ import android.util.Log;
  *   标准 —— 每 10 分钟查一次（维持缓存鲜活，最省请求）
  *   快刷 —— 任意触发后 20 秒窗口内每 3 秒查一次，窗口静默后自动退回标准
  * 硬约束：任意两次真实请求间隔 >= 3 秒（工作线程串行 + MIN_GAP 双保险）。
+ * v1.9.18 起：慢刷读到电瓶电压(bat) < 11.8V 时自动触发同一套 20 秒快刷窗口做复核，
+ * 窗口末仍明确低于阈值才两声报警并弹警示窗；快刷没拿到有效电压则保守取消。
  *
  * 接口分工：
  *   refreshAndWait(c) —— 判定类用：触发快刷并等待本轮结果，返回本轮车况（失败返回 null）
@@ -26,6 +28,9 @@ public final class CarStateCache {
     private static final long FAST_WINDOW_MS = 20000L;         // 快刷窗口：20 秒无触发退回
     private static final long MIN_GAP_MS = 3000L;              // 任意两次请求最小间隔
     private static final long WAIT_TIMEOUT_MS = 20000L;        // 判定等待本轮结果的上限
+    // v1.9.18：电瓶电压低电压监控。慢刷读到 bat < 11.8V 触发 20 秒快刷复核，
+    // 快刷窗口末仍有明确低于阈值的电压才报警；快刷没拿到有效电压则保守取消。
+    private static final double LOW_VOLTAGE_THRESHOLD = 11.8;
 
     private static volatile CarStateCache INSTANCE;
 
@@ -51,6 +56,12 @@ public final class CarStateCache {
     private String beepExpectCmd;   // Api.CMD_UNLOCK / Api.CMD_LOCK，null=无待确认提示音
     private long beepExpectAt;      // elapsedRealtime 登记时刻
     private long beepExpectEpoch;   // 登记时代次，切号后作废
+
+    // v1.9.18：低电压快刷复核状态（仅工作线程改，锁内读写）
+    private boolean lowVoltagePending;      // 是否正等待快刷复核
+    private long lowVoltageTriggerAt;       // 触发复核时刻，用于判断 20 秒窗口结束
+    private Double lowVoltageLast;          // 复核窗口内最新一次有效电压
+    private boolean lowVoltageHasFastResult;// 快刷窗口内至少拿到一次有效电压
 
     private CarStateCache() {}
 
@@ -167,6 +178,10 @@ public final class CarStateCache {
             lastError = null;
             // v1.9.17：切号/换车时把待确认的提示音期望一并作废，防止上账号的指令在新账号车上响。
             beepExpectCmd = null;
+            // v1.9.18：低电压复核状态同样作废，避免上一辆车的待复核电压弹到新账号上。
+            lowVoltagePending = false;
+            lowVoltageLast = null;
+            lowVoltageHasFastResult = false;
             // v1.9.5：递增代次。已发出但仍在飞行中的旧凭证查询回来后，
             // 发现 epoch 已变，会把结果丢弃——绝不把上一个账号/车的车况写回来冒充实时。
             epoch++;
@@ -193,10 +208,36 @@ public final class CarStateCache {
     private void run() {
         while (started) {
             long myTarget;
+            Double alarmVoltage = null;
+            String windowLog = null;
+            boolean fireAlarm = false;
             synchronized (lock) {
                 while (true) {
                     long now = SystemClock.elapsedRealtime();
                     boolean fast = lastTriggerAt != 0L && (now - lastTriggerAt) < FAST_WINDOW_MS;
+
+                    // v1.9.18：低电压快刷窗口结束的那一刻做复核判定。
+                    // 只在「慢刷发现 <11.8V → 触发 20 秒快刷 → 窗口末仍有明确低电压」时报警。
+                    // 快刷期间没有任何有效电压则保守取消，避免用单次异常值误报。
+                    if (!fast && lowVoltagePending
+                            && (now - lowVoltageTriggerAt) >= FAST_WINDOW_MS) {
+                        Double v = lowVoltageLast;
+                        boolean hasFast = lowVoltageHasFastResult;
+                        lowVoltagePending = false;
+                        lowVoltageLast = null;
+                        lowVoltageHasFastResult = false;
+                        if (hasFast && v != null && v < LOW_VOLTAGE_THRESHOLD) {
+                            fireAlarm = true;
+                            alarmVoltage = v;
+                        } else {
+                            windowLog = "【低电压】快刷复核结束，"
+                                    + (hasFast && v != null
+                                        ? "电压=" + v + "V（不低于 " + LOW_VOLTAGE_THRESHOLD + "V），取消报警"
+                                        : "未取得有效电压，保守取消报警");
+                        }
+                        fast = false;
+                    }
+
                     long period = fast ? FAST_MS : STANDARD_MS;
                     boolean pending = reqSeq > doneSeq;
                     // 有pending时最快也不能突破 3 秒；无pending时按当前模式周期
@@ -213,6 +254,14 @@ public final class CarStateCache {
                 }
                 myTarget = reqSeq; // 快照本轮要服务的最大请求序号
             }
+            // 弹窗/播放声音放在锁外，避免音频与 Activity 启动阻塞车况工作线程。
+            if (windowLog != null) CtrlLog.i(TAG, windowLog);
+            if (fireAlarm && alarmVoltage != null) {
+                CtrlLog.w(TAG, "【低电压】快刷复核确认电瓶电压 " + alarmVoltage + "V < "
+                        + LOW_VOLTAGE_THRESHOLD + "V：两声报警 + 弹出警示窗");
+                BeepHelper.playLock();
+                LowVoltageAlerter.show(alarmVoltage);
+            }
             queryOnce(myTarget);
         }
     }
@@ -225,10 +274,13 @@ public final class CarStateCache {
         // 会用新 token 查询却记着旧代次，回来后误判 stale 丢弃，白等一轮。
         final long myEpoch;
         final String usedToken, usedCarid;
+        final boolean fastNow;
         synchronized (lock) {
             myEpoch = epoch;
             usedToken = (c != null && Prefs.isLoggedIn(c)) ? Prefs.token(c) : null;
             usedCarid = (c != null) ? Prefs.carid(c) : null;
+            long now = SystemClock.elapsedRealtime();
+            fastNow = lastTriggerAt != 0L && (now - lastTriggerAt) < FAST_WINDOW_MS;
         }
         Api.CarState s = null;
         String err = null;
@@ -254,7 +306,29 @@ public final class CarStateCache {
                 // 凭证已切换：丢弃本轮结果。successSeq 不推进 → refreshAndWait 的等待者按「未确认」处理；
                 // 但仍推进 doneSeq，避免等待者白等到超时。lastError 也不覆盖（切号已清空）。
                 Log.w(TAG, "【全局车况】凭证已变更，丢弃在途旧结果（序号=" + target + "）");
+                // v1.9.18：在途旧结果的电压不能参与新账号的低电压复核。
+                lowVoltagePending = false;
+                lowVoltageLast = null;
+                lowVoltageHasFastResult = false;
             } else if (ok) {
+                // v1.9.18：低电压实时监控。只在慢刷（非快刷窗口）发现 bat<11.8V 时发起复核，
+                // 快刷窗口内只记录最新电压，等到窗口末由 run() 统一判定，避免单次抖动误报。
+                Double volt = s.batteryVoltage;
+                if (lowVoltagePending) {
+                    if (fastNow && volt != null) {
+                        lowVoltageLast = volt;
+                        lowVoltageHasFastResult = true;
+                    }
+                } else if (!fastNow && volt != null && volt < LOW_VOLTAGE_THRESHOLD) {
+                    lowVoltagePending = true;
+                    lowVoltageTriggerAt = SystemClock.elapsedRealtime();
+                    lowVoltageLast = volt;
+                    lowVoltageHasFastResult = false;
+                    // 复用既有快刷窗口：20 秒内每 3 秒一查，与其它触发源并存不冲突。
+                    lastTriggerAt = lowVoltageTriggerAt;
+                    CtrlLog.i(TAG, "【低电压】慢刷读到电瓶电压 " + volt + "V < "
+                            + LOW_VOLTAGE_THRESHOLD + "V，触发 20 秒快刷复核");
+                }
                 // v1.9.17：提示音由「指令期望」驱动——指令成功发出后 expectCommand() 登记目标门态，
                 // 快刷首次读到目标门态即响一次。修复 v1.9.16 只比较前后两轮缓存的缺陷：
                 // 冷启动/切号后 cached=null、指令前后门态恰好相同（例如启动态下门态未即时回显）、
@@ -292,6 +366,7 @@ public final class CarStateCache {
         Log.i(TAG, "【全局车况】本轮完成 started="
                 + (ok && s.started != null ? s.started : "未知")
                 + " unlocked=" + (ok && s.unlocked != null ? s.unlocked : "未知")
+                + " bat=" + (ok && s.batteryVoltage != null ? s.batteryVoltage + "V" : "未知")
                 + (ok ? "" : " 失败=" + err) + " 序号=" + target);
         if (c != null) CarWidget.onGlobalStatus(c, ok ? copy(s) : null, ok ? null : err);
     }
@@ -301,6 +376,7 @@ public final class CarStateCache {
         s.started = src.started;
         s.unlocked = src.unlocked;
         s.mileage = src.mileage;
+        s.batteryVoltage = src.batteryVoltage;
         return s;
     }
 }

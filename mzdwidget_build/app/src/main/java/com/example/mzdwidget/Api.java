@@ -114,6 +114,7 @@ public final class Api {
         public Boolean started;      // 发动机是否启动
         public Boolean unlocked;     // 是否处于解锁状态
         public String mileage;       // 里程（主界面车况详情显示）
+        public Double batteryVoltage; // 电瓶电压（V），来自 bat 字段；null=未知
     }
 
     /**
@@ -137,6 +138,9 @@ public final class Api {
         Object eng = d.opt("engine");
         if (eng != null && eng != JSONObject.NULL) s.started = (d.optInt("engine", 0) == 3);
         s.mileage = d.optString("mileage", "");
+        // v1.9.18：bat 是电瓶电压（实测 "13" = 13V）。0/空/非数字一律视为未知，
+        // 避免服务端降级返回 0 时被误判成 0V 而误触发低电压报警。
+        s.batteryVoltage = parseBatteryVoltage(d.opt("bat"));
         // lock: lf/lr/rf/rr 任一 ==1 表示未上锁
         // v1.9.5：仅当至少有任一门字段存在时才写 unlocked。若 lock 对象存在但子字段全缺
         // （服务端降级/部分响应），anyEqualsOne 会把四个 optInt 全取默认 0 → false（误判「已锁」），
@@ -155,11 +159,28 @@ public final class Api {
         // v1.9.12：HTTP 200 但业务降级/异常（如 status:500、result:null、字段全缺）会解析出
         // started/unlocked/mileage 全空的对象。若当作成功返回，CarStateCache.queryOnce 的
         // ok=(s!=null) 恒为 true → 污染缓存、清空 lastError、推进 successSeq，破坏"本轮成功"语义。
-        // 与 CarActions.statusUnavailable 口径一致：三个字段全缺视为车况不可用，抛异常走失败分支。
-        if (s.started == null && s.unlocked == null && (s.mileage == null || s.mileage.isEmpty())) {
+        // 与 CarActions.statusUnavailable 口径一致：所有关键字段全缺视为车况不可用，
+        // 抛异常走失败分支。v1.9.18 起 bat 也算有效字段之一。
+        if (s.started == null && s.unlocked == null && s.batteryVoltage == null
+                && (s.mileage == null || s.mileage.isEmpty())) {
             throw new Exception("车况响应无有效字段（业务降级或异常）");
         }
         return s;
+    }
+
+    /** 解析 bat 字段：支持数字或字符串，兼容 "13.2V"；<=0 视为未知。 */
+    private static Double parseBatteryVoltage(Object raw) {
+        if (raw == null || raw == JSONObject.NULL) return null;
+        String s = String.valueOf(raw).trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) return null;
+        if (s.endsWith("V") || s.endsWith("v")) s = s.substring(0, s.length() - 1).trim();
+        try {
+            double v = Double.parseDouble(s);
+            // 0 通常是服务端占位/未知；电瓶电压不可能为负，两者都不作为有效值。
+            return (v > 0 && v < 100) ? v : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean anyEqualsOne(JSONObject o, String... keys) {

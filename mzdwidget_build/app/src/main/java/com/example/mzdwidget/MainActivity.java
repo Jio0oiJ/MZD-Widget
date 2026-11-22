@@ -190,6 +190,8 @@ public class MainActivity extends Activity {
         etToken.setText(Prefs.token(this).isEmpty() ? "" : "****************");
         etCarid.setText(Prefs.carid(this));
         refreshStatusText();
+        // v1.9.18：低电压复核确认后，后台会拉起本界面并带电压参数；这里负责弹警示窗。
+        handleLowVoltageIntent(getIntent());
 
         btnRootImport.setOnClickListener(v -> doRootImport());
         btnLogin.setOnClickListener(v -> doLogin());
@@ -390,9 +392,38 @@ public class MainActivity extends Activity {
                 on ? 0xFF1B8A5A : 0xFF607080));
     }
 
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleLowVoltageIntent(intent);
+    }
+
     @Override protected void onResume() {
         super.onResume();
         refreshAccessibilityButton();
+    }
+
+    /** v1.9.18：处理低电压警示 Intent，取完即清，避免旋转屏幕后重复弹窗。 */
+    private void handleLowVoltageIntent(Intent intent) {
+        if (intent == null || !intent.hasExtra(LowVoltageAlerter.EXTRA_VOLTAGE)) return;
+        double v = intent.getDoubleExtra(LowVoltageAlerter.EXTRA_VOLTAGE, -1d);
+        intent.removeExtra(LowVoltageAlerter.EXTRA_VOLTAGE);
+        setIntent(intent);
+        if (v <= 0) return;
+        showLowVoltageDialog(v);
+    }
+
+    /** 电瓶电压不足警示窗；同时复用了锁车两声提示音（由 CarStateCache 触发）。 */
+    private void showLowVoltageDialog(double voltage) {
+        String msg = "当前电瓶电压 " + String.format("%.1f", voltage) + " V，低于 11.8 V。\n"
+                + "请及时检查车辆电瓶 / 充电系统。";
+        new AlertDialog.Builder(this)
+                .setTitle("电瓶电压不足")
+                .setMessage(msg)
+                .setPositiveButton("知道了", null)
+                .setCancelable(true)
+                .show();
+        CtrlLog.i(TAG, "【低电压】警示窗已显示：" + String.format("%.1f", voltage) + "V");
     }
 
     private void refreshBtDeviceText() {
