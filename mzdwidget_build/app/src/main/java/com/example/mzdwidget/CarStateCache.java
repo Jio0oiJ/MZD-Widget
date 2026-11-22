@@ -299,6 +299,9 @@ public final class CarStateCache {
         }
 
         boolean stale = false;
+        // v1.9.21：提示音「是否响/响哪种」在锁内判定，真正播放放到锁外——
+        // BeepHelper 同步合成 PCM + AudioTrack 构造会阻塞工作线程，不该持有 lock。
+        boolean beepFire = false, beepWantUnlock = false;
         synchronized (lock) {
             lastQueryAt = SystemClock.elapsedRealtime();
             stale = (myEpoch != epoch);
@@ -343,10 +346,9 @@ public final class CarStateCache {
                             : Boolean.FALSE.equals(s.unlocked);
                     if (hit) {
                         beepExpectCmd = null;
-                        CtrlLog.i(TAG, "【提示音】指令快刷确认成功：" + (wantUnlock ? "解锁→响一声" : "上锁→响两声")
-                                + " 门态=" + s.unlocked);
-                        if (wantUnlock) BeepHelper.playUnlock();
-                        else BeepHelper.playLock();
+                        // v1.9.21：只置标志，播放挪到锁外，避免音频合成/播放阻塞工作线程持锁。
+                        beepFire = true;
+                        beepWantUnlock = wantUnlock;
                     } else if (SystemClock.elapsedRealtime() - beepExpectAt > BEEP_EXPECT_TIMEOUT_MS) {
                         CtrlLog.w(TAG, "【提示音】指令期望超时 60 秒未确认门态：" + cmd
                                 + "，不响（当前门态=" + s.unlocked + "）");
@@ -363,12 +365,27 @@ public final class CarStateCache {
             lock.notifyAll();
         }
         if (stale) return; // 绝不 onGlobalStatus 写盘旧车况
-        Log.i(TAG, "【全局车况】本轮完成 started="
-                + (ok && s.started != null ? s.started : "未知")
-                + " unlocked=" + (ok && s.unlocked != null ? s.unlocked : "未知")
-                + " bat=" + (ok && s.batteryVoltage != null ? s.batteryVoltage + "V" : "未知")
-                + (ok ? "" : " 失败=" + err) + " 序号=" + target);
-        if (c != null) CarWidget.onGlobalStatus(c, ok ? copy(s) : null, ok ? null : err);
+        // v1.9.21：堵住切号串号窄窗口——stale 在上面锁内算出，写盘原本在锁外，
+        // 切号（invalidate 递增 epoch + 清桌面）若夹在两者之间，旧车况会被写回清空的桌面。
+        // 现把「二次校验 + 写盘」放进同一临界区，与 invalidate 串行：
+        //   · 切号先拿锁 → 本轮见 epoch 已变，放弃写盘；
+        //   · 本轮先拿锁写盘 → 切号随后 invalidate + clearStatus，最终桌面仍是清空的。
+        // onGlobalStatus 只写 Prefs/重绘组件，不回调本类锁，持锁调用安全。
+        synchronized (lock) {
+            if (myEpoch != epoch) return;
+            Log.i(TAG, "【全局车况】本轮完成 started="
+                    + (ok && s.started != null ? s.started : "未知")
+                    + " unlocked=" + (ok && s.unlocked != null ? s.unlocked : "未知")
+                    + " bat=" + (ok && s.batteryVoltage != null ? s.batteryVoltage + "V" : "未知")
+                    + (ok ? "" : " 失败=" + err) + " 序号=" + target);
+            if (c != null) CarWidget.onGlobalStatus(c, ok ? copy(s) : null, ok ? null : err);
+        }
+        // 提示音放到锁外播放（不持有 lock），避免音频合成/播放阻塞其它查询/切号。
+        if (beepFire) {
+            CtrlLog.i(TAG, "【提示音】指令快刷确认成功：" + (beepWantUnlock ? "解锁→响一声" : "上锁→响两声"));
+            if (beepWantUnlock) BeepHelper.playUnlock();
+            else BeepHelper.playLock();
+        }
     }
 
     private static Api.CarState copy(Api.CarState src) {

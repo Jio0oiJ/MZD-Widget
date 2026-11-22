@@ -136,7 +136,17 @@ public final class Api {
         // 缺失或显式 null 时保持 started=null（未知）交给上层按不可用处理；
         // 真值仍用 optInt 解析，保留对字符串数字（如 "3"）的兼容。
         Object eng = d.opt("engine");
-        if (eng != null && eng != JSONObject.NULL) s.started = (d.optInt("engine", 0) == 3);
+        if (eng != null && eng != JSONObject.NULL) {
+            Integer engineCode = optIntFlexible(eng);
+            if (engineCode != null) {
+                s.started = (engineCode == 3);
+            } else if (eng instanceof Boolean) {
+                // v1.9.21：服务端若把 engine 改成布尔，true 必须视为「已启动」——
+                // 绝不能让 optInt 默认成 0 而把行驶中的车判成「未启动」，那样会放行 BLE 误解锁。
+                s.started = Boolean.TRUE.equals(eng);
+            }
+            // 其它无法解析类型：保持 started=null（未知），上层保守跳过，绝不默认 false。
+        }
         s.mileage = d.optString("mileage", "");
         // v1.9.18：bat 是电瓶电压（实测 "13" = 13V）。0/空/非数字一律视为未知，
         // 避免服务端降级返回 0 时被误判成 0V 而误触发低电压报警。
@@ -184,8 +194,41 @@ public final class Api {
     }
 
     private static boolean anyEqualsOne(JSONObject o, String... keys) {
-        for (String k : keys) if (o.optInt(k, 0) == 1) return true;
+        for (String k : keys) {
+            Object v = o.opt(k);
+            if (v == null || v == JSONObject.NULL) continue;
+            // v1.9.21：兼容布尔 true（门开）与数字 1，避免 optInt 对布尔默认成 0
+            // 把「门已开」误判成「已上锁」。
+            if (v instanceof Boolean) {
+                if (Boolean.TRUE.equals(v)) return true;
+                continue;
+            }
+            Integer code = optIntFlexible(v);
+            if (code != null && code == 1) return true;
+        }
         return false;
+    }
+
+    /**
+     * v1.9.21：把 JSON 里的数值字段解析成整数，兼容 Number 与数字字符串（含 "3.0"）。
+     * 非数值/布尔返回 null（由调用方决定未知处理），绝不用 optInt 的默认值 0 冒充有效值。
+     */
+    private static Integer optIntFlexible(Object v) {
+        if (v == null || v == JSONObject.NULL || v instanceof Boolean) return null;
+        if (v instanceof Number) return ((Number) v).intValue();
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty()) return null;
+        try {
+            return Integer.valueOf(s);
+        } catch (NumberFormatException e) {
+            try {
+                double d = Double.parseDouble(s);
+                // 仅接受整数值的浮点字符串（如 "3.0"），避免 "3.7" 被截断成 3 误判启动。
+                return (d == Math.rint(d)) ? Integer.valueOf((int) d) : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
     }
 
     /** 带公共头 + 签名的 GET */

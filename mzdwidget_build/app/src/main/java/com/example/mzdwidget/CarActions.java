@@ -118,6 +118,11 @@ public final class CarActions {
             return;
         }
         try {
+            // v1.9.21：前置清理移到 CAS 成功之后。原先在 ActionService/WidgetActions 里于 CAS 之前
+            // 就 clear/cancel，重复点击时 T2 虽被 CAS 拒绝，却已清掉在途 T1 的解锁去重标记与兜底闹钟。
+            // 现在只有真正抢到执行的这一次才清理，杜绝干扰在途流程。
+            CarWidget.clearSmartUnlockDone(c);
+            CarWidget.cancelSmartUnlockFallback(c);
             // v1.8.5：不再启动快刷 tick（它会额外查网）。桌面更新由 query() 复用结果完成。
             // v1.9.2：首查失败先重试一次，第二轮仍失败才终止（绝不盲目发锁/启动/解锁）
             Api.CarState s0 = queryWithRetry(c, "步骤1-查询锁车状态");

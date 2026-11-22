@@ -37,8 +37,7 @@ public class WidgetActions extends BroadcastReceiver {
                 Log.w(TAG, "前台服务启动失败，退化为后台线程：" + e.getMessage());
                 new Thread(() -> {
                     try {
-                        CarWidget.clearSmartUnlockDone(app);
-                        CarWidget.cancelSmartUnlockFallback(app);
+                        // v1.9.21：前置清理已移入 smartStartAndUnlock 的 CAS 之后，这里不再重复清。
                         CarActions.smartStartAndUnlock(app,
                                 (ok, msg) -> Log.i(TAG, "一键启动结果=" + msg));
                         CarWidget.redraw(app);
@@ -58,34 +57,35 @@ public class WidgetActions extends BroadcastReceiver {
             return;
         }
         if (CarWidget.ACTION_CMD.equals(action)) {
-            // v1.9：手动按钮触发全局快刷，车况由统一缓存提供
-            CarStateCache.get(app).trigger(app);
             final String cmd = intent.getStringExtra(CarWidget.EXTRA_CMD);
-            final PendingResult pending = goAsync();
-            new Thread(() -> {
-                try {
-                    String msg;
+            // v1.9.21：按钮指令的 Api.control 超时可达 15s+15s，放在 goAsync 里有 ANR 风险。
+            // 改由 ActionService 前台服务承载，广播立即结束；个别机型拒绝后台拉起前台服务时
+            // 退化为普通线程（不 goAsync，广播同样立即结束，不弹 ANR）。
+            try {
+                Intent svc = new Intent(app, ActionService.class);
+                svc.setAction(ActionService.ACTION_CMD);
+                svc.putExtra(CarWidget.EXTRA_CMD, cmd);
+                if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(svc);
+                else app.startService(svc);
+            } catch (Exception e) {
+                Log.w(TAG, "按钮指令前台服务启动失败，退化为后台线程：" + e.getMessage());
+                new Thread(() -> {
                     try {
+                        CarStateCache.get(app).trigger(app);
                         if (!Prefs.isLoggedIn(app)) {
-                            msg = "请先在 App 登录或填入 Token";
-                            Log.w(TAG, "桌面按钮 " + label(cmd) + " 未执行：" + msg);
+                            Log.w(TAG, "桌面按钮 " + label(cmd) + " 未执行：请先登录或填入 Token");
                         } else {
                             String reason = "桌面按钮：" + label(cmd);
                             if (Api.CMD_UNLOCK.equals(cmd)) CarActions.unlock(app, reason);
                             else if (Api.CMD_LOCK.equals(cmd)) CarActions.lock(app, reason);
-                            // 手动点击不参与 BLE 服务内部的 10 秒窗口
                             else CarActions.send(app, cmd, Api.CMD_START.equals(cmd) ? 15 : -1, reason);
-                            msg = label(cmd) + "指令已发送";
                         }
-                    } catch (Exception e) {
-                        msg = label(cmd) + "失败：" + shortErr(e);
-                        Log.e(TAG, msg);
+                        CarWidget.refreshAndUpdate(app);
+                    } catch (Exception ex) {
+                        Log.e(TAG, "按钮指令异常：" + shortErr(ex));
                     }
-                    CarWidget.refreshAndUpdate(app);
-                } finally {
-                    pending.finish();
-                }
-            }, "mzd-cmd").start();
+                }, "mzd-cmd-fallback").start();
+            }
             return;
         }
         if (CarWidget.ACTION_PERIODIC.equals(action)) {
@@ -142,7 +142,7 @@ public class WidgetActions extends BroadcastReceiver {
         }
     }
 
-    private static String label(String cmd) {
+    static String label(String cmd) {
         if (Api.CMD_UNLOCK.equals(cmd)) return "解锁";
         if (Api.CMD_LOCK.equals(cmd)) return "上锁";
         if (Api.CMD_STALL.equals(cmd)) return "熄火";

@@ -108,7 +108,10 @@ public class BleScanService extends Service {
     private static final long SAMPLE_MS = 300L;          // 有回调时的采样节流：0.3 秒
     private static final int AVG_POINTS = 10;            // 滑动均值窗口：10 点 ≈ 3 秒
     private static final int MEAN_POINTS = 5;            // 均值序列长度：用于斜率拟合
-    private static final float SLOPE_EPS = 0.5f;         // 斜率死区(dB/均值点)：小于此视作持平，防抖
+    private static final float SLOPE_EPS = 0.5f;         // 解锁侧斜率死区(dB/均值点)：斜率>=-0.5 视作不下降
+    /** v1.9.21：上锁侧斜率门槛放宽到 -0.2——信号缓慢走低也能确认离开，堵住"稳定弱信号漏锁"。
+     *  解锁侧仍用 SLOPE_EPS=0.5（趋势必须不下降），两侧不对称是有意的：锁车宁可早一点。 */
+    private static final float LOCK_SLOPE_EPS = 0.2f;
     private static final int TREND_NONE = 0;
     private static final int TREND_STRONG = 1;
     private static final int TREND_WEAK = 2;
@@ -116,6 +119,8 @@ public class BleScanService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     /** 最近一条 BLE 自动指令（解锁或上锁，不区分）的发出时间 */
     private final AtomicLong lastBleAction = new AtomicLong(0);
+    /** v1.9.21：STOP/销毁后置位，阻止在途动作线程继续发指令、并抑制销毁后的通知刷新 */
+    private volatile boolean stopped = false;
 
     private BluetoothAdapter adapter;
     private BluetoothLeScanner scanner;
@@ -200,7 +205,7 @@ public class BleScanService extends Service {
 
             // v1.9.20：单帧 RSSI 不再直接触发动作，必须经 0.3 秒采样→10 点均值→均值斜率去抖。
             // WiFi 暂停扫描期间不会有回调；断崖式消失同样不产生弱信号趋势，故不会上锁。
-            if (valid && !wifiConnected) {
+            if (valid && !wifiConnected && !stopped) {
                 int trend = onRssiSample(now, rssi);
                 if (trend == TREND_STRONG && !present && tryClaimActionWindow(now)) {
                     setPresent(true);
@@ -210,13 +215,17 @@ public class BleScanService extends Service {
                             + " dBm，斜率=" + String.format("%.2f", lastSlope) + " dB/点，触发解锁；回调累计="
                             + diagCb.get() + "，弱信号次数=" + diagWeak.get());
                     persistDiag(); // 解锁指令发出是关键时刻，立即落盘
-                    new Thread(() -> CarActions.onBlePresent(getApplicationContext(),
+                    new Thread(() -> {
+                        // v1.9.21：STOP 后不再发指令（在途线程可能恰在 refreshAndWait 网络等待中）
+                        if (stopped) return;
+                        CarActions.onBlePresent(getApplicationContext(),
                             (ok, msg) -> {
                                 // ok=false = 动作失败或车况不可用待重试：复位 present，让后续扫描重试。
                                 // onBlePresent 的确定性跳过（已解锁/发动机启动）仍返回 ok=true，不误复位。
                                 if (!ok) { setPresent(false); clearTrend(); }
                                 onActionResult(ok, msg);
-                            }), "mzd-ble-present").start();
+                            });
+                    }, "mzd-ble-present").start();
                 } else if (trend == TREND_WEAK && present && tryClaimActionWindow(now)) {
                     setPresent(false);
                     clearTrend();
@@ -226,8 +235,11 @@ public class BleScanService extends Service {
                             + " dBm，斜率=" + String.format("%.2f", lastSlope) + " dB/点，触发上锁；回调累计="
                             + diagCb.get());
                     persistDiag();
-                    new Thread(() -> CarActions.onBleAbsent(getApplicationContext(),
-                            (ok, msg) -> onActionResult(ok, msg)), "mzd-ble-absent").start();
+                    new Thread(() -> {
+                        if (stopped) return; // v1.9.21：STOP 后不再发锁车指令
+                        CarActions.onBleAbsent(getApplicationContext(),
+                            (ok, msg) -> onActionResult(ok, msg));
+                    }, "mzd-ble-absent").start();
                 }
             }
             // 定向连续扫描下每个广播包都会回调，先按节流判断再投递，避免主线程堆积消息
@@ -314,6 +326,7 @@ public class BleScanService extends Service {
      * 连上 → 停 BLE 扫描 + 冻结判定；断开 → 立刻恢复扫描，并清趋势重新采样建立去抖均值。
      */
     private void applyWifiState() {
+        if (stopped) return; // v1.9.21：STOP 后 WiFi 回调不得再把扫描拉起来
         boolean nowWifi = isWifiConnected();
         if (nowWifi == wifiConnected) return;
         wifiConnected = nowWifi;
@@ -383,8 +396,9 @@ public class BleScanService extends Service {
             int threshold = Prefs.btRssiThreshold(getApplicationContext());
             // 接近：去抖均值达标，且趋势不下降（上升或持平）。
             if (mean >= threshold && slope >= -SLOPE_EPS) return TREND_STRONG;
-            // 离开：去抖均值低于阈值，且趋势明确走低（信号越来越弱）。
-            if (mean < threshold && slope <= -SLOPE_EPS) return TREND_WEAK;
+            // 离开：去抖均值低于阈值，且趋势走低。门槛放宽到 -0.2（LOCK_SLOPE_EPS），
+            // 让缓慢减弱也能确认离开；断崖式消失（无采样过程）仍走不到这里，不会误锁。
+            if (mean < threshold && slope <= -LOCK_SLOPE_EPS) return TREND_WEAK;
             return TREND_NONE;
         }
     }
@@ -454,14 +468,17 @@ public class BleScanService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
+            stopped = true; // v1.9.21：阻止在途动作线程继续发指令/刷通知
             stopScanInternal();
             clearTrend();
             setPresent(false);
             main.removeCallbacks(watchdogLoop);
+            main.removeCallbacksAndMessages(null); // 清掉已排队的通知/WiFi runnable，防停止后复活
             stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
         }
+        stopped = false; // 服务被复用重新启动时撤销停止标志
         startAsForeground();
 
         if (!Prefs.btEnabled(this) || !hasPermission()) {
@@ -762,7 +779,11 @@ public class BleScanService extends Service {
     }
 
     private void postNotify(boolean force) {
-        main.post(() -> updateNotification(force));
+        main.post(() -> {
+            // v1.9.21：STOP 后排队的通知 runnable 不再刷新，避免常驻通知复活。
+            if (stopped) return;
+            updateNotification(force);
+        });
     }
 
     private void updateNotification(boolean force) {
@@ -837,7 +858,8 @@ public class BleScanService extends Service {
         if (wifiConnected) return "已连接 WiFi · BLE 扫描暂停（省电），离开判定冻结";
         if (lastSeen <= 0) return "尚未发现目标 · 去抖趋势判定未开始";
         String trend = Float.isNaN(lastSlope) ? "样本累积中"
-                : (lastSlope > SLOPE_EPS ? "信号走强" : (lastSlope < -SLOPE_EPS ? "信号走弱" : "信号持平"));
+                : (lastSlope > SLOPE_EPS ? "信号走强"
+                    : (lastSlope < -LOCK_SLOPE_EPS ? "信号走弱（可上锁）" : "信号持平"));
         return "去抖趋势 · 0.3 秒采样 / " + AVG_POINTS + " 点均值 / " + trend
                 + (screenOn ? "" : " · 熄屏中");
     }
@@ -881,9 +903,11 @@ public class BleScanService extends Service {
 
     @Override
     public void onDestroy() {
+        stopped = true; // v1.9.21：销毁后抑制在途动作与通知刷新
         stopScanInternal();
         clearTrend();
         main.removeCallbacks(watchdogLoop);
+        main.removeCallbacksAndMessages(null);
         if (networkCb != null && connectivity != null) {
             try { connectivity.unregisterNetworkCallback(networkCb); } catch (Exception ignored) { }
         }
