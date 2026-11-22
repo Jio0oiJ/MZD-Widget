@@ -101,8 +101,9 @@ public class BleScanService extends Service {
      *   - 采样节流 SAMPLE_MS：无信号回调时看门狗 1 秒一检；一旦有目标回调，0.3 秒取一个样本。
      *   - 去抖：AVG_POINTS=10 个样本（约 3 秒）滚动求均值，滤掉单帧抖动。
      *   - 趋势：MEAN_POINTS 个连续均值做线性斜率拟合，看信号整体在变强还是变弱。
-     *     接近 = 去抖均值>=阈值 且 斜率不下降（上升或持平）→ 解锁；
-     *     离开 = 去抖均值<阈值 且 斜率明确为负（走低）→ 上锁；
+     *     接近 = 去抖均值>=【解锁阈值】 且 斜率不下降（上升或持平）→ 解锁；
+     *     离开 = 去抖均值<【上锁阈值】 且 斜率明确为负（走低）→ 上锁；
+     *     v1.9.22 起解锁/上锁双阈值分离（默认 -70 / -78），中间为滞回区，防临界抖动反复触发。
      *     断崖式消失（WiFi 暂停、熄屏、蓝牙关闭、设备掉线）没有采样过程，一律判异常、绝不锁车。
      */
     private static final long SAMPLE_MS = 300L;          // 有回调时的采样节流：0.3 秒
@@ -230,10 +231,11 @@ public class BleScanService extends Service {
                     setPresent(false);
                     clearTrend();
                     diagLock.incrementAndGet();
-                    diagLastEvent = "去抖均值走低(" + Math.round(lastSmoothRssi) + "<" + threshold + ")→上锁";
-                    Log.i(TAG, "去抖趋势确认离开：均值=" + Math.round(lastSmoothRssi) + " dBm < 阈值 " + threshold
-                            + " dBm，斜率=" + String.format("%.2f", lastSlope) + " dB/点，触发上锁；回调累计="
-                            + diagCb.get());
+                    int lockThreshold = Prefs.btLockRssiThreshold(getApplicationContext());
+                    diagLastEvent = "去抖均值走低(" + Math.round(lastSmoothRssi) + "<上锁" + lockThreshold + ")→上锁";
+                    Log.i(TAG, "去抖趋势确认离开：均值=" + Math.round(lastSmoothRssi) + " dBm < 上锁阈值 " + lockThreshold
+                            + " dBm（解锁阈值 " + threshold + "），斜率=" + String.format("%.2f", lastSlope)
+                            + " dB/点，触发上锁；回调累计=" + diagCb.get());
                     persistDiag();
                     new Thread(() -> {
                         if (stopped) return; // v1.9.21：STOP 后不再发锁车指令
@@ -393,12 +395,15 @@ public class BleScanService extends Service {
             float slope = trendSlope(meanHistory);
             lastSlope = slope;
 
-            int threshold = Prefs.btRssiThreshold(getApplicationContext());
-            // 接近：去抖均值达标，且趋势不下降（上升或持平）。
-            if (mean >= threshold && slope >= -SLOPE_EPS) return TREND_STRONG;
-            // 离开：去抖均值低于阈值，且趋势走低。门槛放宽到 -0.2（LOCK_SLOPE_EPS），
+            // v1.9.22：双阈值滞回——解锁用 unlockThreshold，上锁用更低(默认低 8dB)的 lockThreshold。
+            // 两个阈值之间的滞回区既不解也不锁，防临界点抖动来回触发。
+            int unlockThreshold = Prefs.btRssiThreshold(getApplicationContext());
+            int lockThreshold = Prefs.btLockRssiThreshold(getApplicationContext());
+            // 接近：去抖均值达到解锁阈值，且趋势不下降（上升或持平）。
+            if (mean >= unlockThreshold && slope >= -SLOPE_EPS) return TREND_STRONG;
+            // 离开：去抖均值跌破【上锁阈值】，且趋势走低。门槛放宽到 -0.2（LOCK_SLOPE_EPS），
             // 让缓慢减弱也能确认离开；断崖式消失（无采样过程）仍走不到这里，不会误锁。
-            if (mean < threshold && slope <= -LOCK_SLOPE_EPS) return TREND_WEAK;
+            if (mean < lockThreshold && slope <= -LOCK_SLOPE_EPS) return TREND_WEAK;
             return TREND_NONE;
         }
     }
@@ -822,8 +827,11 @@ public class BleScanService extends Service {
         String smooth = Float.isNaN(lastSmoothRssi) ? "采集中"
                 : (Math.round(lastSmoothRssi) + " dBm" + (Float.isNaN(lastSlope) ? ""
                 : " · 趋势 " + String.format("%+.2f", lastSlope)));
-        big.append("\n去抖：10 点均值 ").append(smooth).append(" / 阈值 ").append(threshold).append(" dBm");
-        big.append("\n规则：去抖均值达标且不走低才解锁 · 低于阈值且走低才上锁 · 10 秒窗口 · 解锁闩锁 ")
+        int lockThreshold = Prefs.btLockRssiThreshold(c);
+        big.append("\n去抖：10 点均值 ").append(smooth)
+                .append(" / 解锁≥").append(threshold).append(" / 上锁<").append(lockThreshold).append(" dBm");
+        big.append("\n规则：均值≥解锁阈值且不走低才解锁 · 均值<上锁阈值且走低才上锁 ")
+                .append("(滞回 ").append(threshold - lockThreshold).append(" dB) · 10 秒窗口 · 解锁闩锁 ")
                 .append(Prefs.bleUnlockLatched(c) ? "已置位" : "未置位");
         big.append("\n诊断：回调 ").append(diagCb.get()).append(" · 命中 ").append(diagHit.get())
                 .append(" · 弱信号 ").append(diagWeak.get())

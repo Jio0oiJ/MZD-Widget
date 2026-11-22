@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
 
     private EditText etPhone, etPass, etToken, etCarid;
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
-    private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi;
+    private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
     private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility;
     private CheckBox cbBtEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -237,6 +237,21 @@ public class MainActivity extends Activity {
                 try {
                     int v = Integer.parseInt(s.toString().trim());
                     if (v >= -100 && v <= -30) Prefs.setBtRssiThreshold(MainActivity.this, v);
+                } catch (NumberFormatException ignored) { }
+            }
+        });
+
+        // v1.9.22：上锁信号阈值——与上锁判定独立，默认值 -78（比解锁阈值低 8dB 形成滞回）。
+        // 实时生效；只接受 -100~-30 的合法值，中间态不落盘。
+        etBtLockRssi = findViewById(R.id.et_bt_lock_rssi);
+        etBtLockRssi.setText(String.valueOf(Prefs.btLockRssiThreshold(this)));
+        etBtLockRssi.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(Editable s) {
+                try {
+                    int v = Integer.parseInt(s.toString().trim());
+                    if (v >= -100 && v <= -30) Prefs.setBtLockRssiThreshold(MainActivity.this, v);
                 } catch (NumberFormatException ignored) { }
             }
         });

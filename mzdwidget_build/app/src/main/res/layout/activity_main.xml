@@ -279,6 +279,15 @@
                 android:padding="10dp" android:background="@drawable/btn_round_light"
                 android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
 
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="上锁信号阈值（dBm，默认 -78；建议低于解锁阈值形成滞回，防临界抖动）" android:textColor="#555555"
+                android:textSize="13sp" android:layout_marginTop="10dp" />
+            <EditText android:id="@+id/et_bt_lock_rssi"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="-78" android:inputType="numberSigned"
+                android:padding="10dp" android:background="@drawable/btn_round_light"
+                android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
+
             <CheckBox android:id="@+id/cb_bt_enable"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="启用 BLE 扫描自动控车" android:textSize="14sp"

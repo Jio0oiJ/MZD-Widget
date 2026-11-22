@@ -16,6 +16,7 @@ public final class Prefs {
     private static final String K_BT_ENABLED = "bt_enabled"; // 蓝牙自动控车开关
     private static final String K_BT_AWAY_SEC = "bt_away_sec"; // BLE 扫描：离开判定秒数
     private static final String K_BT_RSSI = "bt_rssi_threshold"; // BLE 解锁信号阈值（dBm，负整数）
+    private static final String K_BT_LOCK_RSSI = "bt_lock_rssi_threshold"; // v1.9.22 BLE 上锁信号阈值（dBm，负整数，独立滞回）
     private static final String K_BT_UNLOCK_LATCH = "bt_unlock_latch"; // 本次靠近是否已解锁过
 
     // 外观设置（独立 prefs，清凭证时不影响）
@@ -126,6 +127,19 @@ public final class Prefs {
         // 夹在 -100~-30：上限防误填 0/正数导致 rssi>=阈值 恒假（永远不解锁），
         // 下限防误填极小负数导致恒真（永远解锁）
         btPrefs(c).edit().putInt(K_BT_RSSI, Math.max(-100, Math.min(-30, dbm))).apply();
+    }
+
+    /**
+     * v1.9.22：BLE 上锁信号阈值，与解锁阈值分离形成真正的双阈值滞回。
+     * 均值跌破该值且趋势走低才上锁；默认 -78 dBm（比解锁默认 -70 低 8 dB）。
+     * 这样靠近要在 -70 以上才解锁、离开要跌到 -78 以下才上锁，中间 -78~-70 是滞回区，
+     * 避免临界点信号小幅抖动导致反复解锁/上锁。
+     */
+    public static int btLockRssiThreshold(Context c) { return btPrefs(c).getInt(K_BT_LOCK_RSSI, -78); }
+    public static void setBtLockRssiThreshold(Context c, int dbm) {
+        // 同样夹在 -100~-30。不强制 lock < unlock：用户可自行设置（若设成 >= 解锁阈值，
+        // 判定仍安全——上锁条件更严格或等价，最坏是两者相同退化为单阈值）。
+        btPrefs(c).edit().putInt(K_BT_LOCK_RSSI, Math.max(-100, Math.min(-30, dbm))).apply();
     }
 
     /* ===== 外观：品牌文字/颜色、车况文字颜色（独立存储，清凭证不重置） ===== */
