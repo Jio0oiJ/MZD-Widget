@@ -48,9 +48,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *   - onScanFailed / 静默限流 / 长时间零回调 / 蓝牙重开都能自愈重启，
  *     且重启间隔远大于「30 秒 5 次」配额窗口。
  *
- * 业务逻辑（v1.9.19 起）：
- *   - 趋势判定取代单阈值：每秒取 1 个 RSSI 代表值，连续 3 点稳定越阈值才动作。
- *     接近 = 3 点达标且整体不回落 → 解锁；离开 = 3 点低于阈值且整体走低 → 上锁。
+ * 业务逻辑（趋势判定 v1.9.20 起）：
+ *   - 去抖趋势判定取代单帧阈值：有信号时每 0.3 秒采一个 RSSI，10 点滑动均值去抖，
+ *     再对最近 5 个均值做线性斜率拟合，看信号整体在变强还是变弱（不看单帧）。
+ *     接近 = 去抖均值达标且趋势不下降 → 解锁；离开 = 去抖均值低于阈值且趋势明确走低 → 上锁。
  *     断崖式消失（WiFi 停扫、熄屏、蓝牙关闭、设备掉线）没有采样过程，判异常、不锁车。
  *   - 连 WiFi 时停止连续 BLE 扫描省电，同时冻结离开判定；断开 WiFi 立即恢复扫描。
  *   - 10 秒窗口由本服务内部维护：解锁与上锁共用，任意两条 BLE 自动指令之间
@@ -69,7 +70,8 @@ public class BleScanService extends Service {
     private static final String CHANNEL_ID = "mzd_ble_scan";
     private static final String TAG = "MZDBleDiag";
     private static final int NOTIF_ID = 8801;
-    private static final long WATCHDOG_MS = 2000L;
+    /** v1.9.20：无回调时看门狗每秒检查一次；有信号回调时采样节流到 0.3 秒（见 SAMPLE_MS） */
+    private static final long WATCHDOG_MS = 1000L;
     /** 本服务内部窗口：解锁与上锁共用，任意两条 BLE 自动指令之间至少间隔 10 秒 */
     private static final long DEDUP_MS = 10000L;
     /** 通知刷新最小间隔：定向连续扫描每秒可能回调数十次，不能每次都 notify */
@@ -95,14 +97,18 @@ public class BleScanService extends Service {
     private static final String PRESENCE_PREFS = "mzd_ble_presence";
 
     /**
-     * v1.9.19：信号趋势判定。连续 3 个 1 秒采样点才确认一次靠近/离开：
-     *   接近 = 3 点稳定在阈值以上（允许平台/小幅波动），解锁；
-     *   离开 = 3 点稳定在阈值以下且整体走低，上锁；
-     *   断崖式消失（WiFi 暂停扫描、熄屏、蓝牙关闭、设备掉线）没有采样过程，
-     *         一律判为异常，绝不触发上锁。
+     * v1.9.20：去抖趋势判定。不看单帧 RSSI，改为「自适应采样 + 10 点滑动均值 + 均值斜率」：
+     *   - 采样节流 SAMPLE_MS：无信号回调时看门狗 1 秒一检；一旦有目标回调，0.3 秒取一个样本。
+     *   - 去抖：AVG_POINTS=10 个样本（约 3 秒）滚动求均值，滤掉单帧抖动。
+     *   - 趋势：MEAN_POINTS 个连续均值做线性斜率拟合，看信号整体在变强还是变弱。
+     *     接近 = 去抖均值>=阈值 且 斜率不下降（上升或持平）→ 解锁；
+     *     离开 = 去抖均值<阈值 且 斜率明确为负（走低）→ 上锁；
+     *     断崖式消失（WiFi 暂停、熄屏、蓝牙关闭、设备掉线）没有采样过程，一律判异常、绝不锁车。
      */
-    private static final int TREND_POINTS = 3;
-    private static final long TREND_SAMPLE_MS = 1000L;
+    private static final long SAMPLE_MS = 300L;          // 有回调时的采样节流：0.3 秒
+    private static final int AVG_POINTS = 10;            // 滑动均值窗口：10 点 ≈ 3 秒
+    private static final int MEAN_POINTS = 5;            // 均值序列长度：用于斜率拟合
+    private static final float SLOPE_EPS = 0.5f;         // 斜率死区(dB/均值点)：小于此视作持平，防抖
     private static final int TREND_NONE = 0;
     private static final int TREND_STRONG = 1;
     private static final int TREND_WEAK = 2;
@@ -135,12 +141,16 @@ public class BleScanService extends Service {
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback networkCb;
 
-    /** v1.9.19：每秒取一个 RSSI 代表值，避免连续广播抖动淹没趋势。 */
+    /** v1.9.20：0.3 秒采样窗口 + 去抖均值序列，全部在 trendLock 内访问。 */
     private final Object trendLock = new Object();
-    private final ArrayDeque<RssiSample> rssiSamples = new ArrayDeque<>();
+    private final ArrayDeque<RssiSample> rssiSamples = new ArrayDeque<>(); // 原始样本(最多 AVG_POINTS)
+    private final ArrayDeque<Float> meanHistory = new ArrayDeque<>();       // 去抖均值序列(最多 MEAN_POINTS)
     private long lastSampleAt = 0L;
     /** 断崖式消失只记一次日志，避免车长期不在旁边时每 60 秒刷屏 */
     private volatile boolean cliffNoted = false;
+    /** 通知栏展示当前去抖后的均值与趋势斜率，便于排查 */
+    private volatile float lastSmoothRssi = Float.NaN;
+    private volatile float lastSlope = Float.NaN;
 
     private static final class RssiSample {
         final long at;
@@ -188,16 +198,17 @@ public class BleScanService extends Service {
             if (strongEnough) lastSeen = now;   // 仅用于通知栏「多久前可见」
             else diagWeak.incrementAndGet();
 
-            // v1.9.19：单帧 RSSI 不再直接触发动作，必须攒满 3 个 1 秒采样点形成趋势。
+            // v1.9.20：单帧 RSSI 不再直接触发动作，必须经 0.3 秒采样→10 点均值→均值斜率去抖。
             // WiFi 暂停扫描期间不会有回调；断崖式消失同样不产生弱信号趋势，故不会上锁。
             if (valid && !wifiConnected) {
                 int trend = onRssiSample(now, rssi);
                 if (trend == TREND_STRONG && !present && tryClaimActionWindow(now)) {
                     setPresent(true);
                     diagUnlock.incrementAndGet();
-                    diagLastEvent = "RSSI趋势达标(" + rssi + "≥" + threshold + ")→解锁";
-                    Log.i(TAG, "3 点趋势确认靠近：RSSI=" + rssi + " dBm ≥ 阈值 " + threshold
-                            + " dBm，触发解锁；回调累计=" + diagCb.get() + "，弱信号次数=" + diagWeak.get());
+                    diagLastEvent = "去抖均值达标(" + Math.round(lastSmoothRssi) + "≥" + threshold + ")→解锁";
+                    Log.i(TAG, "去抖趋势确认靠近：均值=" + Math.round(lastSmoothRssi) + " dBm ≥ 阈值 " + threshold
+                            + " dBm，斜率=" + String.format("%.2f", lastSlope) + " dB/点，触发解锁；回调累计="
+                            + diagCb.get() + "，弱信号次数=" + diagWeak.get());
                     persistDiag(); // 解锁指令发出是关键时刻，立即落盘
                     new Thread(() -> CarActions.onBlePresent(getApplicationContext(),
                             (ok, msg) -> {
@@ -210,9 +221,10 @@ public class BleScanService extends Service {
                     setPresent(false);
                     clearTrend();
                     diagLock.incrementAndGet();
-                    diagLastEvent = "RSSI趋势走低(" + rssi + "<" + threshold + ")→上锁";
-                    Log.i(TAG, "3 点趋势确认离开：RSSI=" + rssi + " dBm < 阈值 " + threshold
-                            + " dBm，触发上锁；回调累计=" + diagCb.get());
+                    diagLastEvent = "去抖均值走低(" + Math.round(lastSmoothRssi) + "<" + threshold + ")→上锁";
+                    Log.i(TAG, "去抖趋势确认离开：均值=" + Math.round(lastSmoothRssi) + " dBm < 阈值 " + threshold
+                            + " dBm，斜率=" + String.format("%.2f", lastSlope) + " dB/点，触发上锁；回调累计="
+                            + diagCb.get());
                     persistDiag();
                     new Thread(() -> CarActions.onBleAbsent(getApplicationContext(),
                             (ok, msg) -> onActionResult(ok, msg)), "mzd-ble-absent").start();
@@ -299,7 +311,7 @@ public class BleScanService extends Service {
 
     /**
      * v1.9.19：WiFi 连接状态变化入口。
-     * 连上 → 停 BLE 扫描 + 冻结判定；断开 → 立刻恢复扫描，并给 1 秒采样周期重新建立趋势。
+     * 连上 → 停 BLE 扫描 + 冻结判定；断开 → 立刻恢复扫描，并清趋势重新采样建立去抖均值。
      */
     private void applyWifiState() {
         boolean nowWifi = isWifiConnected();
@@ -330,38 +342,69 @@ public class BleScanService extends Service {
     private void clearTrend() {
         synchronized (trendLock) {
             rssiSamples.clear();
+            meanHistory.clear();
             lastSampleAt = 0L;
+            lastSmoothRssi = Float.NaN;
+            lastSlope = Float.NaN;
         }
     }
 
     /**
-     * v1.9.19：每秒取一个 RSSI 样本，攒满 3 点后判定趋势。
+     * v1.9.20：自适应采样 + 10 点滑动均值去抖 + 均值序列斜率判趋势。
      * 返回 TREND_STRONG / TREND_WEAK / TREND_NONE，真正的解锁/上锁由调用方在锁外执行。
+     *
+     * 流程：每 0.3 秒收一个 RSSI 样本 → 攒满 10 点求滑动均值（≈3 秒窗口，滤单帧抖动）
+     *       → 每新增一个样本产出一个新均值，保留最近 5 个均值 → 最小二乘拟合斜率 → 判方向。
+     * 判定用「去抖均值」而非单帧：均值>=阈值且斜率不下降=靠近；均值<阈值且斜率明确为负=离开。
      */
     private int onRssiSample(long now, int rssi) {
         synchronized (trendLock) {
-            if (now - lastSampleAt < TREND_SAMPLE_MS) return TREND_NONE;
+            if (lastSampleAt != 0L && now - lastSampleAt < SAMPLE_MS) return TREND_NONE;
             lastSampleAt = now;
             cliffNoted = false; // 又有采样过程了，之前的断崖异常标记作废
             rssiSamples.addLast(new RssiSample(now, rssi));
-            while (rssiSamples.size() > TREND_POINTS) rssiSamples.removeFirst();
-            if (rssiSamples.size() < TREND_POINTS) return TREND_NONE;
+            while (rssiSamples.size() > AVG_POINTS) rssiSamples.removeFirst();
+
+            // 未攒满 3 秒窗口：只样本不足，不下任何结论
+            if (rssiSamples.size() < AVG_POINTS) return TREND_NONE;
+
+            double sum = 0;
+            for (RssiSample s : rssiSamples) sum += s.rssi;
+            float mean = (float) (sum / rssiSamples.size());
+            meanHistory.addLast(mean);
+            while (meanHistory.size() > MEAN_POINTS) meanHistory.removeFirst();
+            lastSmoothRssi = mean;
+
+            // 至少 3 个均值点才能看出方向（每点间隔约 0.3 秒）
+            if (meanHistory.size() < 3) { lastSlope = Float.NaN; return TREND_NONE; }
+            float slope = trendSlope(meanHistory);
+            lastSlope = slope;
 
             int threshold = Prefs.btRssiThreshold(getApplicationContext());
-            int first = rssiSamples.getFirst().rssi;
-            int last = rssiSamples.getLast().rssi;
-            boolean allStrong = true;
-            boolean allWeak = true;
-            for (RssiSample s : rssiSamples) {
-                if (s.rssi < threshold) allStrong = false;
-                if (s.rssi >= threshold) allWeak = false;
-            }
-            // 接近：3 点都达标且整体没有回落（允许持平/逐步增强）。
-            if (allStrong && last >= first) return TREND_STRONG;
-            // 离开：3 点都低于阈值且整体走低（允许持平/逐步减弱）。
-            if (allWeak && last <= first) return TREND_WEAK;
+            // 接近：去抖均值达标，且趋势不下降（上升或持平）。
+            if (mean >= threshold && slope >= -SLOPE_EPS) return TREND_STRONG;
+            // 离开：去抖均值低于阈值，且趋势明确走低（信号越来越弱）。
+            if (mean < threshold && slope <= -SLOPE_EPS) return TREND_WEAK;
             return TREND_NONE;
         }
+    }
+
+    /** 最小二乘线性拟合斜率：对均值序列 y=mean[i]、x=i，返回 dB/采样点。<0=信号走弱。 */
+    private static float trendSlope(ArrayDeque<Float> ys) {
+        int n = ys.size();
+        if (n < 2) return 0f;
+        double sx = 0, sy = 0, sxy = 0, sxx = 0;
+        int i = 0;
+        for (float y : ys) {
+            sx += i;
+            sy += y;
+            sxy += i * y;
+            sxx += (double) i * i;
+            i++;
+        }
+        double denom = n * sxx - sx * sx;
+        if (denom <= 0) return 0f;
+        return (float) ((n * sxy - sx * sy) / denom);
     }
 
     /** 亮/熄屏广播：熄屏后通话、传感器等会让系统把 BLE 扫描降到极低占空比 */
@@ -521,7 +564,7 @@ public class BleScanService extends Service {
                 restartScan(false);
             }
         }
-        // v1.9.19：离开判定改由扫描回调的 3 点趋势驱动。
+        // v1.9.20：离开判定改由扫描回调的「10 点均值 + 斜率」去抖趋势驱动。
         // 断崖式消失（停扫/熄屏/掉线）没有采样过程，一律视为异常，绝不因静默自动上锁。
         if (diagCb.get() > 0) persistDiag();
         postNotify(false);
@@ -755,7 +798,11 @@ public class BleScanService extends Service {
         big.append("\n最近动作：").append(lastActionText);
         if (lastActionAt > 0) big.append("  (").append(ago(now - lastActionAt)).append("前)");
         big.append("\n车况：").append(carStatusText());
-        big.append("\n规则：RSSI≥").append(threshold).append(" dBm 才解锁 · 10 秒窗口 · 解锁闩锁 ")
+        String smooth = Float.isNaN(lastSmoothRssi) ? "采集中"
+                : (Math.round(lastSmoothRssi) + " dBm" + (Float.isNaN(lastSlope) ? ""
+                : " · 趋势 " + String.format("%+.2f", lastSlope)));
+        big.append("\n去抖：10 点均值 ").append(smooth).append(" / 阈值 ").append(threshold).append(" dBm");
+        big.append("\n规则：去抖均值达标且不走低才解锁 · 低于阈值且走低才上锁 · 10 秒窗口 · 解锁闩锁 ")
                 .append(Prefs.bleUnlockLatched(c) ? "已置位" : "未置位");
         big.append("\n诊断：回调 ").append(diagCb.get()).append(" · 命中 ").append(diagHit.get())
                 .append(" · 弱信号 ").append(diagWeak.get())
@@ -788,8 +835,10 @@ public class BleScanService extends Service {
     /** 通知栏里直接说明当前判定状态，方便排查误锁误解锁 */
     private String guardText(long now) {
         if (wifiConnected) return "已连接 WiFi · BLE 扫描暂停（省电），离开判定冻结";
-        if (lastSeen <= 0) return "尚未发现目标 · 趋势判定未开始";
-        return "趋势判定 · 每秒 1 点 / 连续 " + TREND_POINTS + " 点 · 稳定越阈值才动作"
+        if (lastSeen <= 0) return "尚未发现目标 · 去抖趋势判定未开始";
+        String trend = Float.isNaN(lastSlope) ? "样本累积中"
+                : (lastSlope > SLOPE_EPS ? "信号走强" : (lastSlope < -SLOPE_EPS ? "信号走弱" : "信号持平"));
+        return "去抖趋势 · 0.3 秒采样 / " + AVG_POINTS + " 点均值 / " + trend
                 + (screenOn ? "" : " · 熄屏中");
     }
 
