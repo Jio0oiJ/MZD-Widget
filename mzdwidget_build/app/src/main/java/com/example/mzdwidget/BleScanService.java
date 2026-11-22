@@ -18,6 +18,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -27,6 +31,7 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,8 +48,11 @@ import java.util.concurrent.atomic.AtomicLong;
  *   - onScanFailed / 静默限流 / 长时间零回调 / 蓝牙重开都能自愈重启，
  *     且重启间隔远大于「30 秒 5 次」配额窗口。
  *
- * 业务逻辑保持不变：
- *   - 扫到目标 → 自动解锁；连续 N 秒（默认 30 秒）扫不到 → 判定离开并上锁。
+ * 业务逻辑（v1.9.19 起）：
+ *   - 趋势判定取代单阈值：每秒取 1 个 RSSI 代表值，连续 3 点稳定越阈值才动作。
+ *     接近 = 3 点达标且整体不回落 → 解锁；离开 = 3 点低于阈值且整体走低 → 上锁。
+ *     断崖式消失（WiFi 停扫、熄屏、蓝牙关闭、设备掉线）没有采样过程，判异常、不锁车。
+ *   - 连 WiFi 时停止连续 BLE 扫描省电，同时冻结离开判定；断开 WiFi 立即恢复扫描。
  *   - 10 秒窗口由本服务内部维护：解锁与上锁共用，任意两条 BLE 自动指令之间
  *     至少间隔 10 秒；桌面按钮与一键启动不受此窗口限制。
  *   - 「解锁闩锁」：本次靠近成功解锁后，直到下次离开发出锁车命令之前，
@@ -86,6 +94,19 @@ public class BleScanService extends Service {
     /** 在场状态持久化文件：进程被 MIUI 杀掉重建后，不把「恢复扫描」当成重新靠近 */
     private static final String PRESENCE_PREFS = "mzd_ble_presence";
 
+    /**
+     * v1.9.19：信号趋势判定。连续 3 个 1 秒采样点才确认一次靠近/离开：
+     *   接近 = 3 点稳定在阈值以上（允许平台/小幅波动），解锁；
+     *   离开 = 3 点稳定在阈值以下且整体走低，上锁；
+     *   断崖式消失（WiFi 暂停扫描、熄屏、蓝牙关闭、设备掉线）没有采样过程，
+     *         一律判为异常，绝不触发上锁。
+     */
+    private static final int TREND_POINTS = 3;
+    private static final long TREND_SAMPLE_MS = 1000L;
+    private static final int TREND_NONE = 0;
+    private static final int TREND_STRONG = 1;
+    private static final int TREND_WEAK = 2;
+
     private final Handler main = new Handler(Looper.getMainLooper());
     /** 最近一条 BLE 自动指令（解锁或上锁，不区分）的发出时间 */
     private final AtomicLong lastBleAction = new AtomicLong(0);
@@ -108,6 +129,24 @@ public class BleScanService extends Service {
     /** 蓝牙关→开等同于一次「重新发现」，同样需要宽限期，否则旧 lastSeen 会立刻误判离开 */
     private volatile boolean lastBtOn = true;
     private SharedPreferences presencePrefs;
+
+    /** v1.9.19：连 WiFi 时停扫省电；断开后恢复。停扫期间同时冻结离开判定。 */
+    private volatile boolean wifiConnected = false;
+    private ConnectivityManager connectivity;
+    private ConnectivityManager.NetworkCallback networkCb;
+
+    /** v1.9.19：每秒取一个 RSSI 代表值，避免连续广播抖动淹没趋势。 */
+    private final Object trendLock = new Object();
+    private final ArrayDeque<RssiSample> rssiSamples = new ArrayDeque<>();
+    private long lastSampleAt = 0L;
+    /** 断崖式消失只记一次日志，避免车长期不在旁边时每 60 秒刷屏 */
+    private volatile boolean cliffNoted = false;
+
+    private static final class RssiSample {
+        final long at;
+        final int rssi;
+        RssiSample(long at, int rssi) { this.at = at; this.rssi = rssi; }
+    }
 
     // ===== 通知栏状态（全部在主线程更新） =====
     private volatile int lastRssi = 0;
@@ -143,37 +182,41 @@ public class BleScanService extends Service {
             lastRssi = rssi;
             hasRssi = true;
             int threshold = Prefs.btRssiThreshold(getApplicationContext());
-            // RSSI 是负数，越接近 0 越强：rssi >= 阈值 才算「靠得够近」。
             // 127 是 Android 的无效 RSSI 哨兵值，必须排除，否则走远时反而恒达标。
-            boolean strongEnough = rssi != 127 && rssi >= threshold;
-            if (!strongEnough) {
-                // 信号未达标：不计为「可见」，lastSeen 不刷新 → 看门狗据此判定离开并上锁。
-                // 否则人走远后弱信号仍不断刷新 lastSeen，永远无法判离开、车不会锁。
-                diagWeak.incrementAndGet();
-                if (now - lastNotifAt >= NOTIF_MIN_MS) postNotify(false);
-                return;
-            }
-            // 信号达标才算真正「靠近」：刷新可见时间 + 触发解锁
-            lastSeen = now;
-            if (!present) {
-                if (tryClaimActionWindow(now)) {
+            boolean valid = rssi != 127;
+            boolean strongEnough = valid && rssi >= threshold;
+            if (strongEnough) lastSeen = now;   // 仅用于通知栏「多久前可见」
+            else diagWeak.incrementAndGet();
+
+            // v1.9.19：单帧 RSSI 不再直接触发动作，必须攒满 3 个 1 秒采样点形成趋势。
+            // WiFi 暂停扫描期间不会有回调；断崖式消失同样不产生弱信号趋势，故不会上锁。
+            if (valid && !wifiConnected) {
+                int trend = onRssiSample(now, rssi);
+                if (trend == TREND_STRONG && !present && tryClaimActionWindow(now)) {
                     setPresent(true);
                     diagUnlock.incrementAndGet();
-                    diagLastEvent = "RSSI达标(" + rssi + "≥" + threshold + ")→解锁";
-                    Log.i(TAG, "命中目标且信号达标：RSSI=" + rssi + " dBm ≥ 阈值 " + threshold
+                    diagLastEvent = "RSSI趋势达标(" + rssi + "≥" + threshold + ")→解锁";
+                    Log.i(TAG, "3 点趋势确认靠近：RSSI=" + rssi + " dBm ≥ 阈值 " + threshold
                             + " dBm，触发解锁；回调累计=" + diagCb.get() + "，弱信号次数=" + diagWeak.get());
                     persistDiag(); // 解锁指令发出是关键时刻，立即落盘
                     new Thread(() -> CarActions.onBlePresent(getApplicationContext(),
                             (ok, msg) -> {
                                 // ok=false = 动作失败或车况不可用待重试：复位 present，让后续扫描重试。
-                                // 否则 present 恒为 true，设备一直在旁边时看门狗只判离开、不重判靠近，
-                                // 本次跳过后将永不再尝试解锁（v1.9.3 修复）。
                                 // onBlePresent 的确定性跳过（已解锁/发动机启动）仍返回 ok=true，不误复位。
-                                if (!ok) setPresent(false);
+                                if (!ok) { setPresent(false); clearTrend(); }
                                 onActionResult(ok, msg);
                             }), "mzd-ble-present").start();
+                } else if (trend == TREND_WEAK && present && tryClaimActionWindow(now)) {
+                    setPresent(false);
+                    clearTrend();
+                    diagLock.incrementAndGet();
+                    diagLastEvent = "RSSI趋势走低(" + rssi + "<" + threshold + ")→上锁";
+                    Log.i(TAG, "3 点趋势确认离开：RSSI=" + rssi + " dBm < 阈值 " + threshold
+                            + " dBm，触发上锁；回调累计=" + diagCb.get());
+                    persistDiag();
+                    new Thread(() -> CarActions.onBleAbsent(getApplicationContext(),
+                            (ok, msg) -> onActionResult(ok, msg)), "mzd-ble-absent").start();
                 }
-                // 10 秒窗口未过：保持 present=false，后续扫描结果会继续重试，避免动作被吞掉
             }
             // 定向连续扫描下每个广播包都会回调，先按节流判断再投递，避免主线程堆积消息
             if (now - lastNotifAt >= NOTIF_MIN_MS) postNotify(false);
@@ -215,6 +258,110 @@ public class BleScanService extends Service {
         sf.addAction(Intent.ACTION_SCREEN_ON);
         sf.addAction(Intent.ACTION_SCREEN_OFF);
         try { registerReceiver(screenReceiver, sf); } catch (Exception ignored) { }
+
+        // v1.9.19：监听 WiFi 连接状态。回调在系统线程，统一 post 到主线程再改服务状态。
+        connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        wifiConnected = isWifiConnected();
+        if (connectivity != null) {
+            networkCb = new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network) { main.post(BleScanService.this::applyWifiState); }
+                @Override public void onLost(Network network) { main.post(BleScanService.this::applyWifiState); }
+                @Override public void onUnavailable() { main.post(BleScanService.this::applyWifiState); }
+            };
+            try {
+                connectivity.registerNetworkCallback(
+                        new NetworkRequest.Builder()
+                                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                                .build(),
+                        networkCb);
+            } catch (Exception e) {
+                Log.w(TAG, "注册 WiFi 状态监听失败：" + e.getMessage());
+                networkCb = null;
+            }
+        }
+    }
+
+    /** v1.9.19：当前是否连着 WiFi（只判传输类型，不要求已验证上网） */
+    private boolean isWifiConnected() {
+        try {
+            if (connectivity == null) {
+                connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            }
+            if (connectivity == null) return false;
+            Network n = connectivity.getActiveNetwork();
+            if (n == null) return false;
+            NetworkCapabilities nc = connectivity.getNetworkCapabilities(n);
+            return nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * v1.9.19：WiFi 连接状态变化入口。
+     * 连上 → 停 BLE 扫描 + 冻结判定；断开 → 立刻恢复扫描，并给 1 秒采样周期重新建立趋势。
+     */
+    private void applyWifiState() {
+        boolean nowWifi = isWifiConnected();
+        if (nowWifi == wifiConnected) return;
+        wifiConnected = nowWifi;
+        clearTrend();
+        long now = System.currentTimeMillis();
+        if (wifiConnected) {
+            if (scanning) stopScanInternal();
+            scanNote = "已连接 WiFi · BLE 暂停（省电）";
+            lastResultAt = now; // 防止自愈重启把暂停中的扫描又拉起来
+            CtrlLog.i(TAG, "【WiFi 省电】已连接 WiFi：停止连续扫描，离开判定冻结");
+        } else {
+            scanNote = "WiFi 已断开，恢复扫描";
+            lastSeen = now;    // 仅用于通知栏"多久前可见"，不参与趋势判定
+            screenOnAt = now;
+            lastResultAt = now;
+            restartAt = 0L;
+            if (Prefs.btEnabled(this) && hasPermission() && isBtOn()) {
+                startScanInternal(false);
+            }
+            CtrlLog.i(TAG, "【WiFi 省电】WiFi 断开：恢复 BLE 连续扫描");
+        }
+        postNotify(true);
+    }
+
+    /** 清空趋势样本：切设备、WiFi 切换、蓝牙开、亮屏、服务停止时都要重新建立过程。 */
+    private void clearTrend() {
+        synchronized (trendLock) {
+            rssiSamples.clear();
+            lastSampleAt = 0L;
+        }
+    }
+
+    /**
+     * v1.9.19：每秒取一个 RSSI 样本，攒满 3 点后判定趋势。
+     * 返回 TREND_STRONG / TREND_WEAK / TREND_NONE，真正的解锁/上锁由调用方在锁外执行。
+     */
+    private int onRssiSample(long now, int rssi) {
+        synchronized (trendLock) {
+            if (now - lastSampleAt < TREND_SAMPLE_MS) return TREND_NONE;
+            lastSampleAt = now;
+            cliffNoted = false; // 又有采样过程了，之前的断崖异常标记作废
+            rssiSamples.addLast(new RssiSample(now, rssi));
+            while (rssiSamples.size() > TREND_POINTS) rssiSamples.removeFirst();
+            if (rssiSamples.size() < TREND_POINTS) return TREND_NONE;
+
+            int threshold = Prefs.btRssiThreshold(getApplicationContext());
+            int first = rssiSamples.getFirst().rssi;
+            int last = rssiSamples.getLast().rssi;
+            boolean allStrong = true;
+            boolean allWeak = true;
+            for (RssiSample s : rssiSamples) {
+                if (s.rssi < threshold) allStrong = false;
+                if (s.rssi >= threshold) allWeak = false;
+            }
+            // 接近：3 点都达标且整体没有回落（允许持平/逐步增强）。
+            if (allStrong && last >= first) return TREND_STRONG;
+            // 离开：3 点都低于阈值且整体走低（允许持平/逐步减弱）。
+            if (allWeak && last <= first) return TREND_WEAK;
+            return TREND_NONE;
+        }
     }
 
     /** 亮/熄屏广播：熄屏后通话、传感器等会让系统把 BLE 扫描降到极低占空比 */
@@ -230,6 +377,8 @@ public class BleScanService extends Service {
                 screenOnAt = now;
                 // 亮屏时把扫描自愈计时重置，给重新发现留足窗口
                 lastResultAt = now;
+                // v1.9.19：熄屏期间采样不连续，亮屏后重新累积趋势，避免跨态误判。
+                clearTrend();
             }
             postNotify(true);
         }
@@ -263,6 +412,7 @@ public class BleScanService extends Service {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
             stopScanInternal();
+            clearTrend();
             setPresent(false);
             main.removeCallbacks(watchdogLoop);
             stopForeground(true);
@@ -285,7 +435,15 @@ public class BleScanService extends Service {
         // 进程被杀重建、蓝牙关→开、服务重启都不能重置 present，
         // 否则亮屏后第一次扫到目标会被误判成「重新靠近」而重复解锁。
         String key = filterKey();
-        if (scanning && !key.equals(activeFilterKey)) {
+        wifiConnected = isWifiConnected();
+        if (wifiConnected) {
+            // v1.9.19：连 WiFi 时不启动连续扫描；离开判定在 watchdog 中一并冻结。
+            stopScanInternal();
+            clearTrend();
+            scanNote = "已连接 WiFi · BLE 暂停（省电）";
+            lastResultAt = System.currentTimeMillis();
+            CtrlLog.i(TAG, "【WiFi 省电】已连接 WiFi：停止连续扫描，离开判定冻结");
+        } else if (scanning && !key.equals(activeFilterKey)) {
             restartScan(true);
         } else {
             startScanInternal(false);
@@ -318,62 +476,55 @@ public class BleScanService extends Service {
 
     /** 看门狗单轮逻辑（从原 run() 抽出，便于 try/finally 包裹自调度） */
     private void watchdogTick() {
-            long now = System.currentTimeMillis();
-            boolean btOn = isBtOn();
-            if (btOn != lastBtOn) {
-                lastBtOn = btOn;
-                if (btOn) {
-                    lastSeen = now;
-                    screenOnAt = now; // 复用亮屏宽限逻辑，给扫描重新发现目标的时间
-                }
+        long now = System.currentTimeMillis();
+        boolean btOn = isBtOn();
+        if (btOn != lastBtOn) {
+            lastBtOn = btOn;
+            if (btOn) {
+                lastResultAt = now;
+                screenOnAt = now;
+                // v1.9.19：蓝牙关→开期间没有连续采样，重新建立趋势。
+                clearTrend();
             }
-            if (!btOn) {
-                if (scanning) {
-                    stopScanInternal();
-                    scanNote = "蓝牙已关闭，等待开启";
-                }
-            } else if (!scanning) {
-                if (now >= restartAt && hasPermission()) {
-                    stopScanInternal();   // 清掉可能残留的旧注册
-                    // v1.9.12：自愈重启（扫描失败/蓝牙关→开）绝不重置 present。
-                    // 原为 true 会 setPresent(false)+lastSeen=0，既作废上面 :326 刚设的蓝牙开宽限期，
-                    // 又与类注释"蓝牙关→开/进程重建不重置 present"冲突，导致误判重复解锁。
-                    // 只有设备被重新选择（onStartCommand 的 filterKey 变化）才需要 resetState=true。
-                    startScanInternal(false);
-                }
-            } else {
-                if (now - scanStartedAt >= RESTART_SCAN_MS
-                        || now - lastResultAt >= NO_RESULT_RESTART_MS) {
-                    restartScan(false);
-                }
-            }
-            // 定期快照：即使长时间只回调不触发动作，主界面也能看到计数在增长
+        }
+
+        // v1.9.19：连 WiFi 时扫描已停，这里同步冻结一切离开判定，
+        // 也避免 60 秒零回调自愈把暂停中的扫描又拉起来。
+        if (wifiConnected) {
+            if (scanning) stopScanInternal();
+            scanNote = "已连接 WiFi · BLE 暂停（省电）";
+            lastResultAt = now;
             if (diagCb.get() > 0) persistDiag();
-            if (present && lastSeen > 0 && btOn) {
-                long awayMs = (long) Prefs.btAwaySec(getApplicationContext()) * 1000L;
-                long silent = now - lastSeen;
-                boolean gone;
-                if (screenOn) {
-                    // 亮屏后先给 SCREEN_ON_GRACE_MS 重新发现目标；
-                    // 设备其实一直在旁边时 present 不会被翻转，也就不会误发解锁。
-                    gone = now - screenOnAt >= SCREEN_ON_GRACE_MS && silent >= awayMs;
-                } else {
-                    // 熄屏期间 Doze/省电策略会压低扫描占空比：改用固定 90 秒阈值，
-                    // 从最后一次真正扫到目标开始算，避开 BLE 扫描间隔造成的漏扫误判。
-                    gone = now - lastSeen >= AWAY_SCREEN_OFF_MS;
-                }
-                if (gone && tryClaimActionWindow(now)) {
-                    setPresent(false);
-                    diagLock.incrementAndGet();
-                    diagLastEvent = "判定离开(" + (screenOn ? "亮屏" : "熄屏") + ")→上锁";
-                    Log.i(TAG, "判定设备离开（" + (screenOn ? "亮屏" : "熄屏")
-                            + "，静默 " + (now - lastSeen) / 1000L + " 秒），触发上锁");
-                    persistDiag();
-                    new Thread(() -> CarActions.onBleAbsent(getApplicationContext(),
-                            (ok, msg) -> onActionResult(ok, msg)), "mzd-ble-absent").start();
-                }
-            }
             postNotify(false);
+            return;
+        }
+
+        if (!btOn) {
+            if (scanning) {
+                stopScanInternal();
+                scanNote = "蓝牙已关闭，等待开启";
+            }
+        } else if (!scanning) {
+            if (now >= restartAt && hasPermission()) {
+                stopScanInternal();   // 清掉可能残留的旧注册
+                // v1.9.12：自愈重启（扫描失败/蓝牙关→开）绝不重置 present。
+                // 只有设备被重新选择（onStartCommand 的 filterKey 变化）才需要 resetState=true。
+                startScanInternal(false);
+            }
+        } else {
+            if (now - scanStartedAt >= RESTART_SCAN_MS
+                    || now - lastResultAt >= NO_RESULT_RESTART_MS) {
+                if (present && now - lastResultAt >= NO_RESULT_RESTART_MS && !cliffNoted) {
+                    cliffNoted = true;
+                    CtrlLog.i(TAG, "【异常】信号断崖式消失（无回调），判异常不锁车，仅重启扫描复核");
+                }
+                restartScan(false);
+            }
+        }
+        // v1.9.19：离开判定改由扫描回调的 3 点趋势驱动。
+        // 断崖式消失（停扫/熄屏/掉线）没有采样过程，一律视为异常，绝不因静默自动上锁。
+        if (diagCb.get() > 0) persistDiag();
+        postNotify(false);
     }
 
     private void startAsForeground() {
@@ -437,7 +588,10 @@ public class BleScanService extends Service {
 
     private void startScanInternal(boolean resetState) {
         if (scanning) return;
+        // v1.9.19：连 WiFi 时绝不自愈重启扫描；离开判定也已在 watchdog 中冻结。
+        if (wifiConnected) return;
         if (!hasPermission()) return;
+        clearTrend();
         if (adapter == null) adapter = BluetoothAdapter.getDefaultAdapter();
         if (!isBtOn()) return;
         try {
@@ -588,7 +742,8 @@ public class BleScanService extends Service {
         String rssi = hasRssi ? (lastRssi + " dBm · " + signalWord(lastRssi)
                 + (strongEnough ? " · 达标" : " · 未达标")) : "暂无信号数据";
         String seen = lastSeen > 0 ? ago(now - lastSeen) + "前可见" : "尚未发现";
-        String content = rssi + " · " + seen + (screenOn ? "" : " · 熄屏暂停判定");
+        String content = rssi + " · " + seen
+                + (wifiConnected ? " · WiFi 暂停扫描" : (screenOn ? "" : " · 熄屏"));
 
         StringBuilder big = new StringBuilder();
         big.append("设备：").append(label);
@@ -630,20 +785,12 @@ public class BleScanService extends Service {
         return b.build();
     }
 
-    /** 通知栏里直接说明当前离开判定为何被暂停/宽限，方便排查误锁误解锁 */
+    /** 通知栏里直接说明当前判定状态，方便排查误锁误解锁 */
     private String guardText(long now) {
-        long awayMs = (long) Prefs.btAwaySec(getApplicationContext()) * 1000L;
-        if (lastSeen <= 0) return "尚未发现目标 · 暂不判定离开";
-        if (!screenOn) {
-            long left = AWAY_SCREEN_OFF_MS - (now - lastSeen);
-            return "熄屏中 · 阈值放宽至 90 秒" + (left > 0
-                    ? "（剩 " + (left / 1000L) + " 秒）" : "（即将判离开）");
-        }
-        long sinceOn = now - screenOnAt;
-        if (sinceOn < SCREEN_ON_GRACE_MS) {
-            return "亮屏重新确认中 · " + ((SCREEN_ON_GRACE_MS - sinceOn) / 1000L + 1) + " 秒后恢复判定";
-        }
-        return "正常 · 离开阈值 " + (awayMs / 1000L) + " 秒";
+        if (wifiConnected) return "已连接 WiFi · BLE 扫描暂停（省电），离开判定冻结";
+        if (lastSeen <= 0) return "尚未发现目标 · 趋势判定未开始";
+        return "趋势判定 · 每秒 1 点 / 连续 " + TREND_POINTS + " 点 · 稳定越阈值才动作"
+                + (screenOn ? "" : " · 熄屏中");
     }
 
     private String deviceLabel() {
@@ -686,7 +833,11 @@ public class BleScanService extends Service {
     @Override
     public void onDestroy() {
         stopScanInternal();
+        clearTrend();
         main.removeCallbacks(watchdogLoop);
+        if (networkCb != null && connectivity != null) {
+            try { connectivity.unregisterNetworkCallback(networkCb); } catch (Exception ignored) { }
+        }
         try { unregisterReceiver(screenReceiver); } catch (Exception ignored) { }
         super.onDestroy();
     }

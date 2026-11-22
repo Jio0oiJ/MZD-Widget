@@ -241,7 +241,7 @@
                 android:textColor="#8A1A2B" android:textSize="15sp" />
             <TextView
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="后台扫描周边 BLE 广播：扫到该设备即自动解锁；连续一段时间扫不到即判定离开，车辆未启动时自动上锁（已启动则保持现状）。无需配对或连接。"
+                android:text="后台只扫已选设备：每秒取 1 个信号点，连续 3 点稳定越阈值才解锁/上锁。停扫、熄屏或掉线导致信号断崖式消失没有过程，判为异常、不触发锁车。连 WiFi 时自动停扫省电，断开后恢复。无需配对或连接。"
                 android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
             <Button android:id="@+id/btn_pick_bt"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -262,11 +262,11 @@
 
             <TextView
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="离开判定时间（秒，10~600，默认 30）" android:textColor="#555555"
+                android:text="离开判定时间（已改为 3 秒趋势判定，此项不再生效）" android:textColor="#555555"
                 android:textSize="13sp" android:layout_marginTop="10dp" />
             <EditText android:id="@+id/et_bt_away"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="30" android:inputType="number"
+                android:enabled="false" android:hint="30" android:inputType="number"
                 android:padding="10dp" android:background="@drawable/btn_round_light"
                 android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
 

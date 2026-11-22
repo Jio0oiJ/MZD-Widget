@@ -1,8 +1,13 @@
-# BLE 控车判定逻辑清单（v1.9.8）
+# BLE 控车判定逻辑清单（基线 v1.9.8，现行行为以 v1.9.19 为准）
 
 > 供复核。覆盖从「服务启停 → 扫描命中 → 靠近解锁 → 离开上锁 → 一键启动」的全部判定分支，  
 > 逐条标注源码位置、判定条件、满足/不满足时动作。所有指令发出统一在 `CarActions.send` 写 log  
 > （tag `MZDCtrlLog`），记录：指令 cmd、boot_time、触发原因、carid、时间戳、成功/失败。
+
+> **v1.9.19 覆盖说明**：下文基于 v1.9.8 基线的「单帧 RSSI 越阈值解锁 / 静默 N 秒判离开」已作废。
+> 现行规则为：每秒取 1 个 RSSI 代表值，连续 3 点形成趋势——接近需 3 点稳定越阈值且整体不回落才解锁；
+> 离开需 3 点低于阈值且整体走低才上锁；停扫/熄屏/掉线造成的「断崖式消失」无采样过程，判异常、不锁车。
+> 连 WiFi 时停止 BLE 连续扫描并冻结离开判定，断开 WiFi 立即恢复。10 秒指令窗口与行驶中绝不解锁等底线不变。
 
 
 
@@ -14,10 +19,12 @@
 | ---------------------- | ------------ | -------------------------- | -------------- |
 | `WATCHDOG_MS`          | 2 秒          | 看门狗循环周期                    | BleScanService |
 | `DEDUP_MS`             | 10 秒         | 解锁/上锁共用的最小间隔窗口（仅 BLE 自动指令） | BleScanService |
-| `SCREEN_ON_GRACE_MS`   | 10 秒         | 亮屏后重新发现目标的宽限期              | BleScanService |
-| `AWAY_SCREEN_OFF_MS`   | 90 秒         | 熄屏时离开判定固定阈值                | BleScanService |
-| `btAwaySec`            | 用户设置，默认 30 秒 | 亮屏时离开阈值                    | Prefs          |
-| `NO_RESULT_RESTART_MS` | 60 秒         | 零回调自愈重启                    | BleScanService |
+| `SCREEN_ON_GRACE_MS`   | 10 秒         | 亮屏后重新发现目标的宽限期（v1.9.19 起不再用于上锁判定） | BleScanService |
+| `AWAY_SCREEN_OFF_MS`   | 90 秒         | 旧熄屏离开阈值（v1.9.19 起不再用于上锁判定） | BleScanService |
+| `TREND_POINTS`         | 3 点          | v1.9.19：接近/离开都需连续 3 个采样点 | BleScanService |
+| `TREND_SAMPLE_MS`      | 1 秒          | v1.9.19：每秒取 1 个 RSSI 代表值 | BleScanService |
+| `btAwaySec`            | 用户设置，默认 30 秒 | 旧亮屏离开阈值（v1.9.19 起不再生效，输入框已置灰） | Prefs |
+| `NO_RESULT_RESTART_MS` | 60 秒         | 零回调自愈重启（仅复核扫描，不再触发上锁） | BleScanService |
 | `RESTART_SCAN_MS`      | 5 分钟         | 防扫描降级重建                    | BleScanService |
 | `FAIL_RETRY_MS`        | 10 秒         | 扫描失败退避重启                   | BleScanService |
 | `bleUnlockLatched`     | 布尔，落盘        | 解锁闩锁：本次靠近已解锁则不再重复解锁        | Prefs          |
