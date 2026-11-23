@@ -59,6 +59,11 @@ import java.util.concurrent.atomic.AtomicLong;
  *   - 「解锁闩锁」：本次靠近成功解锁后，直到下次离开发出锁车命令之前，
  *     不再下发解锁指令（逻辑在 CarActions/Prefs 中，本服务不改动）。
  *
+ * v1.9.24：扫描期间持 PARTIAL_WAKE_LOCK（watchdog 每秒续期、带 1.5s 超时兜底），
+ *   对抗熄屏后 Doze 把 BLE 扫描占空比压到极低——否则 0.3s 采样攒不满 10 点，
+ *   趋势判定到不了输出，表现为「熄屏靠近/离开都不动作」。停扫/WiFi/蓝牙关即放锁。
+ *   配合 root 下把本包加入 deviceidle 白名单效果最佳（见 README）。
+ *
  * 前台通知实时反映目标设备状态：在附近/已离开、RSSI、最近可见时间、
  * 扫描状态、最近一次动作与当前车况；每次广播都回调，故通知更新有节流。
  */
@@ -146,6 +151,15 @@ public class BleScanService extends Service {
     private volatile boolean wifiConnected = false;
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback networkCb;
+
+    /**
+     * v1.9.24：部分唤醒锁——熄屏时阻止 CPU suspend 把 BLE 扫描压到极低占空比。
+     * 只在「正在扫描且未停止/未连 WiFi/蓝牙开」时持有，带超时兜底：watchdog 每秒续期，
+     * 任何路径漏释放最多耗电 WAKELOCK_HOLD_MS，不会永久唤醒。
+     */
+    private PowerManager.WakeLock scanWakeLock;
+    private static final long WAKELOCK_HOLD_MS = 1500L; // > watchdog 1s 周期，留半秒抖动余量
+    private volatile boolean wakeLockHeld = false;
 
     /** v1.9.20：0.3 秒采样窗口 + 去抖均值序列，全部在 trendLock 内访问。 */
     private final Object trendLock = new Object();
@@ -278,7 +292,13 @@ public class BleScanService extends Service {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             screenOn = pm == null || pm.isInteractive();
-        } catch (Exception e) { screenOn = true; }
+            // v1.9.24：初始化保活锁。非引用计数 + 超时：watchdog 每秒 acquire 续期，
+            // 进程被冻结(连 watchdog 都不跑)时 1.5 秒后自动释放，绝不永久唤醒。
+            if (pm != null) {
+                scanWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG + ":scan");
+                scanWakeLock.setReferenceCounted(false);
+            }
+        } catch (Exception e) { screenOn = true; scanWakeLock = null; }
         screenOnAt = System.currentTimeMillis();
         IntentFilter sf = new IntentFilter();
         sf.addAction(Intent.ACTION_SCREEN_ON);
@@ -336,6 +356,7 @@ public class BleScanService extends Service {
         long now = System.currentTimeMillis();
         if (wifiConnected) {
             if (scanning) stopScanInternal();
+            releaseWakeLock(); // v1.9.24：WiFi 暂停扫描时明确放锁
             scanNote = "已连接 WiFi · BLE 暂停（省电）";
             lastResultAt = now; // 防止自愈重启把暂停中的扫描又拉起来
             CtrlLog.i(TAG, "【WiFi 省电】已连接 WiFi：停止连续扫描，离开判定冻结");
@@ -557,6 +578,7 @@ public class BleScanService extends Service {
         // 也避免 60 秒零回调自愈把暂停中的扫描又拉起来。
         if (wifiConnected) {
             if (scanning) stopScanInternal();
+            releaseWakeLock(); // v1.9.24：WiFi 暂停扫描时明确放锁
             scanNote = "已连接 WiFi · BLE 暂停（省电）";
             lastResultAt = now;
             if (diagCb.get() > 0) persistDiag();
@@ -586,6 +608,12 @@ public class BleScanService extends Service {
                 restartScan(false);
             }
         }
+        // v1.9.24：只有真正在扫描时才续保活锁。上面 wifiConnected/蓝牙关/非扫描分支
+        // 要么已 return、要么 stopScanInternal 已放锁，这里 acquire 不会在这些状态下误持。
+        // 熄屏时靠这每秒续期维持 BLE 占空比，让采样攒得满、趋势判得出靠近/离开。
+        if (!stopped && scanning && btOn && !wifiConnected) acquireWakeLock();
+        else releaseWakeLock();
+
         // v1.9.20：离开判定改由扫描回调的「10 点均值 + 斜率」去抖趋势驱动。
         // 断崖式消失（停扫/熄屏/掉线）没有采样过程，一律视为异常，绝不因静默自动上锁。
         if (diagCb.get() > 0) persistDiag();
@@ -671,6 +699,7 @@ public class BleScanService extends Service {
                     .build();
             scanner.startScan(filters, settings, scanCb);
             scanning = true;
+            acquireWakeLock(); // v1.9.24：扫描一起就持锁，熄屏也能稳定采样
             long now = System.currentTimeMillis();
             scanStartedAt = now;
             lastResultAt = now;
@@ -701,6 +730,31 @@ public class BleScanService extends Service {
             try { scanner.stopScan(scanCb); } catch (Exception ignored) { }
         }
         scanning = false;
+        releaseWakeLock(); // v1.9.24：停扫即放锁，不留唤醒
+    }
+
+    /**
+     * v1.9.24：扫描保活锁。持锁期间 CPU 不 suspend，BLE 回调实时到达，
+     * 熄屏时采样仍能 0.3 秒一攒，趋势判定照常输出靠近/离开动作。
+     * 非引用计数锁 + 超时：每秒 acquire 续期；watchdog 停摆则 1.5 秒自动释放，不会永久耗电。
+     */
+    private void acquireWakeLock() {
+        if (scanWakeLock == null) return;
+        try {
+            // 非引用计数锁：已持有时再次 acquire(timeout) 只更新到期时间=续期，不会叠加。
+            scanWakeLock.acquire(WAKELOCK_HOLD_MS);
+            wakeLockHeld = true;
+        } catch (Exception e) {
+            Log.w(TAG, "获取扫描唤醒锁失败：" + e.getMessage());
+        }
+    }
+
+    private void releaseWakeLock() {
+        if (scanWakeLock == null || !wakeLockHeld) return;
+        try {
+            if (scanWakeLock.isHeld()) scanWakeLock.release();
+        } catch (Exception ignored) { }
+        wakeLockHeld = false;
     }
 
     /**
@@ -924,6 +978,7 @@ public class BleScanService extends Service {
     public void onDestroy() {
         stopped = true; // v1.9.21：销毁后抑制在途动作与通知刷新
         stopScanInternal();
+        releaseWakeLock(); // v1.9.24： definitively 释放保活锁
         clearTrend();
         main.removeCallbacks(watchdogLoop);
         main.removeCallbacksAndMessages(null);
