@@ -59,7 +59,7 @@ public class MainActivity extends Activity {
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
     private boolean updatingThresholdUi = false; // v1.9.23：阈值输入框互相刷新时防 TextWatcher 重入
     private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility;
-    private CheckBox cbBtEnable;
+    private CheckBox cbBtEnable, cbWearEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     /** 权限未授予时把开关回弹到 false，避免 setChecked(false) 递归触发监听器误停服务 */
@@ -147,6 +147,7 @@ public class MainActivity extends Activity {
         btnLogout = findViewById(R.id.btn_logout);
         btnRootImport = findViewById(R.id.btn_root_import);
         cbBtEnable = findViewById(R.id.cb_bt_enable);
+        cbWearEnable = findViewById(R.id.cb_wear_enable);
         btnPickBt = findViewById(R.id.btn_pick_bt);
         btnAccessibility = findViewById(R.id.btn_accessibility);
         refreshAccessibilityButton();
@@ -314,6 +315,21 @@ public class MainActivity extends Activity {
                 && Prefs.btMac(this) != null && !Prefs.btMac(this).isEmpty()) {
             startBleScanService();
         }
+
+        // v1.9.25：手环遥控开关。默认关，需用户主动开；开启即常驻监听手环指令。
+        cbWearEnable.setChecked(Prefs.wearEnabled(this));
+        cbWearEnable.setOnCheckedChangeListener((v, checked) -> {
+            Prefs.setWearEnabled(this, checked);
+            if (checked) {
+                if (!Prefs.isLoggedIn(this)) logMsg("手环遥控已开启：请先在主界面登录车辆账号");
+                startWearRelayService();
+                logMsg("手环遥控已开启（需手环快应用同包名同签名）");
+            } else {
+                stopWearRelayService();
+                logMsg("手环遥控已关闭");
+            }
+        });
+        if (Prefs.wearEnabled(this)) startWearRelayService();
     }
 
     /* ==================== 桌面组件外观设置 ==================== */
@@ -634,6 +650,24 @@ public class MainActivity extends Activity {
         try {
             Intent i = new Intent(this, BleScanService.class);
             i.setAction(BleScanService.ACTION_STOP);
+            startService(i);
+        } catch (Exception ignored) { }
+    }
+
+    // ===== v1.9.25 手环遥控转发服务 =====
+    private void startWearRelayService() {
+        try {
+            Intent i = new Intent(this, WearRelayService.class);
+            i.setAction(WearRelayService.ACTION_START);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception e) { logMsg("无法启动手环转发服务：" + e.getMessage()); }
+    }
+
+    private void stopWearRelayService() {
+        try {
+            Intent i = new Intent(this, WearRelayService.class);
+            i.setAction(WearRelayService.ACTION_STOP);
             startService(i);
         } catch (Exception ignored) { }
     }

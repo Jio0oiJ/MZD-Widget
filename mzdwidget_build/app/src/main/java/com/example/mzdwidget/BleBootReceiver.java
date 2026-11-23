@@ -17,15 +17,27 @@ public class BleBootReceiver extends BroadcastReceiver {
                 && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) return;
 
         Context app = context.getApplicationContext();
-        if (!Prefs.btEnabled(app)) return;
-        String mac = Prefs.btMac(app);
-        if (mac == null || mac.isEmpty()) return;
+        // v1.9.25：BLE 与手环两个开关互相独立，各自按自身开关恢复，不能因一个关就 return 掉另一个。
+        if (Prefs.btEnabled(app)) {
+            String mac = Prefs.btMac(app);
+            if (mac != null && !mac.isEmpty()) {
+                try {
+                    Intent i = new Intent(app, BleScanService.class);
+                    i.setAction(BleScanService.ACTION_START);
+                    if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i);
+                    else app.startService(i);
+                } catch (Exception ignored) { }
+            }
+        }
 
-        try {
-            Intent i = new Intent(app, BleScanService.class);
-            i.setAction(BleScanService.ACTION_START);
-            if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(i);
-            else app.startService(i);
-        } catch (Exception ignored) { }
+        // v1.9.25：手环遥控开关独立，开机按自身开关恢复
+        if (Prefs.wearEnabled(app)) {
+            try {
+                Intent w = new Intent(app, WearRelayService.class);
+                w.setAction(WearRelayService.ACTION_START);
+                if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(w);
+                else app.startService(w);
+            } catch (Exception ignored) { }
+        }
     }
 }

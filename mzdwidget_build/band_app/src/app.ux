@@ -1,0 +1,13 @@
+<script>
+/**
+ * 应用入口：刻意保持为空壳。
+ * 互联连接与全部状态放在 pages/index 里，在 onReady 初始化——
+ * 冷启动时 app.ux onCreate 阶段互联服务尚未就绪，过早 instance() 会拿到
+ * 不可用实例（表现为手机已连接、手环却立刻 onclose）。
+ * 同时避免快应用 $app 与 $app.$def 两个对象导致的状态分裂。
+ */
+export default {
+  onCreate() { },
+  onDestroy() { }
+}
+</script>

@@ -14,6 +14,7 @@ public final class Prefs {
     private static final String K_BT_MAC = "bt_mac";         // 蓝牙触发设备 MAC
     private static final String K_BT_NAME = "bt_name";       // 蓝牙触发设备名称（仅显示）
     private static final String K_BT_ENABLED = "bt_enabled"; // 蓝牙自动控车开关
+    private static final String K_WEAR_ENABLED = "wear_enabled"; // v1.9.25 手环遥控开关（默认关）
     private static final String K_BT_AWAY_SEC = "bt_away_sec"; // BLE 扫描：离开判定秒数
     private static final String K_BT_RSSI = "bt_rssi_threshold"; // BLE 解锁信号阈值（dBm，负整数）
     private static final String K_BT_LOCK_RSSI = "bt_lock_rssi_threshold"; // v1.9.22 BLE 上锁信号阈值（dBm，负整数，独立滞回）
@@ -111,6 +112,11 @@ public final class Prefs {
         btPrefs(c).edit().putBoolean(K_BT_ENABLED, enabled).apply();
     }
     public static boolean btEnabled(Context c) { return btPrefs(c).getBoolean(K_BT_ENABLED, false); }
+    /** v1.9.25：手环遥控开关，默认关闭，需用户主动开启 */
+    public static void setWearEnabled(Context c, boolean enabled) {
+        btPrefs(c).edit().putBoolean(K_WEAR_ENABLED, enabled).apply();
+    }
+    public static boolean wearEnabled(Context c) { return btPrefs(c).getBoolean(K_WEAR_ENABLED, false); }
     /** BLE 扫描：连续多少秒扫不到目标设备即判定离开，默认 30 秒 */
     public static int btAwaySec(Context c) { return btPrefs(c).getInt(K_BT_AWAY_SEC, 30); }
     public static void setBtAwaySec(Context c, int sec) {

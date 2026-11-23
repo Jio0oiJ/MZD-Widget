@@ -1,0 +1,15 @@
+{
+  "name": "mzd-band-remote",
+  "version": "1.0.0",
+  "description": "MZD car unlock/lock remote for Xiaomi Smart Band 9 Pro (Vela QuickApp)",
+  "engines": { "node": ">=8.10" },
+  "scripts": {
+    "start": "aiot start --watch",
+    "build": "aiot build",
+    "release": "aiot release"
+  },
+  "devDependencies": {
+    "@aiot-toolkit/jsc": "^1.0.3",
+    "aiot-toolkit": "^2.0.5"
+  }
+}

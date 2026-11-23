@@ -1,0 +1,280 @@
+<template>
+  <div class="page">
+    <text class="title">MZD 控车</text>
+    <div class="status-box">
+      <text class="status {{ connected ? 'ok' : 'bad' }}">{{ status }}</text>
+    </div>
+    <text class="diag" if="{{ diag }}">{{ diag }}</text>
+    <text class="result {{ lastOk ? 'rok' : 'rbad' }}" if="{{ lastResult }}">{{ lastResult }}</text>
+
+    <div class="btn unlock {{ busy ? 'dim' : '' }}" onclick="onUnlock">
+      <text class="btn-t">解锁</text>
+    </div>
+    <div class="btn lock {{ busy ? 'dim' : '' }}" onclick="onLock">
+      <text class="btn-t">上锁</text>
+    </div>
+
+    <text class="hint">仅解锁/上锁 · 手机端需开启手环遥控</text>
+  </div>
+</template>
+
+<script>
+/**
+ * 互联初始化放在 onReady（非 app.ux onCreate），避免冷启动拿到不可用实例。
+ * 用 require 而非 import default——部分固件上 import 拿到的是包装对象，
+ * instance() 返回的对象没有 send/diagnosis 方法。
+ */
+var conn = null
+var seq = 0
+var ready = false
+
+function getConn() {
+  if (conn) return conn
+  try {
+    var ic = require('@system.interconnect')
+    if (ic && typeof ic.instance === 'function') {
+      conn = ic.instance()
+    }
+  } catch (e) { }
+  if (!conn) {
+    // import 兜底（官方写法）
+    try {
+      var ic2 = require('@system.interconnect')
+      var def = ic2 && ic2.default ? ic2.default : ic2
+      if (def && typeof def.instance === 'function') conn = def.instance()
+    } catch (e2) { }
+  }
+  return conn
+}
+
+export default {
+  private: {
+    connected: false,
+    status: '初始化中…',
+    diag: '',
+    lastResult: '',
+    lastOk: false,
+    busy: false,
+    reqId: '',
+    timeoutReq: ''
+  },
+
+  onReady() {
+    this.initConn()
+  },
+
+  onShow() {
+    if (ready) this.diagnose()
+  },
+
+  onDestroy() {
+    if (!conn) return
+    try {
+      conn.onmessage = null
+      conn.onopen = null
+      conn.onclose = null
+      conn.onerror = null
+    } catch (e) { }
+  },
+
+  initConn() {
+    var self = this
+    var c = getConn()
+    if (!c) {
+      this.status = '互联不可用'
+      this.diag = '无 @system.interconnect'
+      return
+    }
+    // 能力探测：把结果打在界面上，实机排查用
+    var caps = []
+    if (typeof c.send === 'function') caps.push('send')
+    if (typeof c.diagnosis === 'function') caps.push('diag')
+    this.diag = '互联能力: ' + (caps.length ? caps.join('/') : '无')
+    if (typeof c.send !== 'function') {
+      this.status = '互联实例异常'
+      return
+    }
+
+    try {
+      c.onopen = function () {
+        self.connected = true
+        self.status = '已连接手机'
+        self.diagnose()
+      }
+      c.onclose = function () {
+        self.connected = false
+        self.status = '未连接手机'
+      }
+      c.onerror = function (e) {
+        self.connected = false
+        self.status = '连接异常'
+        self.diag = '错误: ' + ((e && e.data) || '未知')
+      }
+      c.onmessage = function (event) {
+        var msg = null
+        try {
+          var text = event
+          if (event && typeof event === 'object' && typeof event.data === 'string') text = event.data
+          if (typeof text === 'string') msg = JSON.parse(text)
+        } catch (e) { return }
+        self.onResult(msg)
+      }
+    } catch (e) {
+      this.status = '注册回调失败'
+      this.diag = '注册异常: ' + e.message
+      return
+    }
+    ready = true
+    this.diagnose()
+  },
+
+  diagnose() {
+    var self = this
+    if (!conn || typeof conn.diagnosis !== 'function') return
+    try {
+      conn.diagnosis({
+        success: function (data) {
+          var ok = data && Number(data.status) === 0
+          self.connected = !!ok
+          self.status = ok ? '已连接手机' : '未连接手机'
+        },
+        fail: function () {
+          self.connected = false
+          self.status = '未连接手机'
+        }
+      })
+    } catch (e) { }
+  },
+
+  onResult(msg) {
+    if (!msg || msg.type !== 'mzd_result') return
+    // 回执 reqId 必须与当前指令一致，防迟到旧回执错配到新指令
+    if (msg.reqId !== this.reqId) return
+    this.busy = false
+    this.timeoutReq = ''
+    this.lastOk = !!msg.ok
+    this.lastResult = msg.ok ? '已发送' : ('失败: ' + (msg.msg || '未知'))
+    this.vibrate(msg.ok)
+  },
+
+  vibrate(ok) {
+    try {
+      var v = require('@system.vibrator')
+      v.vibrate({ duration: ok ? 60 : 200, success: function () {}, fail: function () {} })
+    } catch (e) { }
+  },
+
+  sendCommand(action) {
+    if (this.busy) return
+    if (!conn || !ready) {
+      this.lastResult = '互联未就绪'
+      this.lastOk = false
+      this.vibrate(false)
+      return
+    }
+    if (!this.connected) {
+      this.lastResult = '未连接手机'
+      this.lastOk = false
+      this.vibrate(false)
+      return
+    }
+    seq += 1
+    var reqId = 'm' + Date.now() + '_' + seq
+    this.busy = true
+    this.reqId = reqId
+    this.timeoutReq = reqId
+    this.lastResult = action === 'unlock' ? '解锁发送中…' : '上锁发送中…'
+    var self = this
+    // 8 秒无回执判超时，仅当仍是同一 reqId 才生效
+    setTimeout(function () {
+      if (self.busy && self.timeoutReq === reqId) {
+        self.busy = false
+        self.timeoutReq = ''
+        self.lastOk = false
+        self.lastResult = '超时，未收到回执'
+        self.vibrate(false)
+      }
+    }, 8000)
+
+    conn.send({
+      data: { type: 'mzd_cmd', action: action, reqId: reqId },
+      success: function () { },
+      fail: function () {
+        if (self.reqId !== reqId) return
+        self.busy = false
+        self.timeoutReq = ''
+        self.lastOk = false
+        self.lastResult = '发送失败'
+        self.vibrate(false)
+      }
+    })
+  },
+
+  onUnlock() { this.sendCommand('unlock') },
+  onLock() { this.sendCommand('lock') }
+}
+</script>
+
+<style>
+.page {
+  flex-direction: column;
+  align-items: center;
+  padding: 12px;
+  background-color: #000000;
+}
+.title {
+  font-size: 28px;
+  color: #ffffff;
+  font-weight: bold;
+  text-align: center;
+  margin-top: 6px;
+}
+.status-box {
+  margin-top: 10px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background-color: #1a1a1a;
+}
+.status {
+  font-size: 20px;
+  text-align: center;
+}
+.ok { color: #4cd964; }
+.bad { color: #ff6b6b; }
+.diag {
+  font-size: 13px;
+  color: #888888;
+  text-align: center;
+  margin-top: 6px;
+}
+.result {
+  font-size: 18px;
+  text-align: center;
+  margin-top: 8px;
+}
+.rok { color: #4cd964; }
+.rbad { color: #ffcc00; }
+.btn {
+  width: 280px;
+  height: 90px;
+  border-radius: 20px;
+  margin-top: 16px;
+  justify-content: center;
+  align-items: center;
+}
+.unlock { background-color: #2e7d32; }
+.lock { background-color: #c62828; }
+.dim { opacity: 0.5; }
+.btn-t {
+  font-size: 32px;
+  color: #ffffff;
+  font-weight: bold;
+  text-align: center;
+}
+.hint {
+  font-size: 13px;
+  color: #666666;
+  text-align: center;
+  margin-top: 14px;
+}
+</style>

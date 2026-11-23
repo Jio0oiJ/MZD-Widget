@@ -28,6 +28,16 @@
          与普通控车工具语义不符、有商店上架被拒风险，故不声明（v1.9.12）。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- v1.9.25：小米互联 SDK 需看见穿戴服务所在包（AAR 自带 queries 仅列了 wearable） -->
+    <queries>
+        <package android:name="com.xiaomi.wearable" />
+        <package android:name="com.mi.health" />
+        <package android:name="com.mc.xiaomi1" />
+        <intent>
+            <action android:name="com.xiaomi.wearable.XMS_WEARABLE_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".MzdApp"
         android:allowBackup="false"
@@ -77,6 +87,12 @@
             android:name=".ActionService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 手环遥控转发服务：常驻监听小米互联手环消息，转 CarActions 控车 -->
+        <service
+            android:name=".WearRelayService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <!-- 可选的无障碍保活：仅系统绑定提升进程优先级 + 低频补启 BLE，不读屏幕/不点击。
              用户需到系统设置手动授权；BIND_ACCESSIBILITY_SERVICE 由系统签名权限保护。 -->

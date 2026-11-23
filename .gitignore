@@ -16,6 +16,21 @@
 !/mzdwidget_build/app/src/
 !/mzdwidget_build/app/build.gradle
 
+# ---- v1.9.25 手环遥控：源码入库，第三方 AAR 与签名私钥不入库 ----
+# 手环快应用源码（JS/配置/协议文档）
+!/mzdwidget_build/band_app/
+/mzdwidget_build/band_app/*
+!/mzdwidget_build/band_app/src/
+!/mzdwidget_build/band_app/PROTOCOL.md
+!/mzdwidget_build/band_app/package.json
+/mzdwidget_build/band_app/node_modules/
+/mzdwidget_build/band_app/build/
+/mzdwidget_build/band_app/dist/
+/mzdwidget_build/band_app/sign/          # 私钥 PEM 绝不入库，从 debug.keystore 现场导出
+/mzdwidget_build/.temp_band_app/
+# 小米互联闭源 AAR（104KB，可从 mibandnotify 官网下载，不入备份）
+/mzdwidget_build/app/libs/
+
 # 构建产物与本机配置
 /mzdwidget_build/.gradle/
 /mzdwidget_build/local.properties

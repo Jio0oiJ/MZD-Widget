@@ -10,8 +10,8 @@ android {
         applicationId 'com.example.mzdwidget'
         minSdk 24
         targetSdk 34
-        versionCode 53
-        versionName '1.9.24'
+        versionCode 54
+        versionName '1.9.25'
     }
 
     buildTypes {
@@ -28,6 +28,9 @@ android {
 }
 
 dependencies {
-    // 不依赖任何第三方库；网络用 JDK 的 HttpURLConnection，
+    // 核心逻辑不依赖第三方库；网络用 JDK 的 HttpURLConnection，
     // MD5/AES 用 javax.crypto，JSON 用内置 Org.json。
+    // v1.9.25：小米穿戴互联 SDK（手环控车透传）。闭源 AAR 随工程附带，
+    // 仅用于 system.interconnect 与手环 rpk 双向通信，无任何网络权限请求。
+    implementation fileTree(dir: 'libs', include: ['*.aar', '*.jar'])
 }
