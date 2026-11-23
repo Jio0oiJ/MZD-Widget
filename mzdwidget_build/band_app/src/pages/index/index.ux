@@ -1,29 +1,32 @@
 <template>
-  <!-- v1.2.3 布局修复：按钮宽度改百分比自适应避免超屏，按钮组 flex:1 + space-around 纵向铺满 -->
-  <div class="page">
-    <div class="header">
-      <text class="title">MZD控车</text>
-      <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
-      <div class="dot dot-red" show="{{ dotRed }}"></div>
-      <div class="dot dot-green" show="{{ dotGreen }}"></div>
-      <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
+  <!-- v1.2.4：按手环9 Pro 真实 336×480 重排；主界面/倒计时用 show 互斥整页切换，不依赖 absolute -->
+  <div class="page" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+    <div class="main" show="{{ mainShow }}">
+      <div class="header">
+        <text class="title">MZD控车</text>
+        <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
+        <div class="dot dot-red" show="{{ dotRed }}"></div>
+        <div class="dot dot-green" show="{{ dotGreen }}"></div>
+        <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
+      </div>
+
+      <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
+      <div class="btn-group">
+        <div class="btn unlock" onclick="onUnlock">
+          <text class="btn-t">解锁</text>
+        </div>
+        <div class="btn lock" onclick="onLock">
+          <text class="btn-t">上锁</text>
+        </div>
+        <!-- touchend/cancel 同时绑在按钮和根容器，确保松手取消在整页切换后仍可达 -->
+        <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+          <text class="btn-t">一键启动 · 长按3秒</text>
+        </div>
+      </div>
     </div>
 
-    <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
-    <div class="btn-group">
-      <div class="btn unlock" onclick="onUnlock">
-        <text class="btn-t">解锁</text>
-      </div>
-      <div class="btn lock" onclick="onLock">
-        <text class="btn-t">上锁</text>
-      </div>
-      <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-        <text class="btn-t">一键启动 · 长按3秒</text>
-      </div>
-    </div>
-
-    <!-- 全屏倒计时：absolute 覆盖，保留 start 按钮节点确保松手取消可达 -->
-    <div class="cd-layer" show="{{ pressing }}">
+    <!-- 全屏倒计时：与主界面 show 互斥，整页黑底 + 居中大数字；同时接收松手取消 -->
+    <div class="cd-layer" show="{{ pressing }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
       <text class="cd-text">{{ cdText }}</text>
     </div>
   </div>
@@ -102,6 +105,7 @@ export default {
     reqId: '',
     timeoutReq: '',
     pressing: false,
+    mainShow: true,
     cdText: '',
     dotRed: true,
     dotGreen: false,
@@ -314,6 +318,7 @@ export default {
     }
     pressActive = false
     this.pressing = false
+    this.mainShow = true
     this.cdText = ''
   },
 
@@ -336,6 +341,7 @@ export default {
     pressActive = true
     pressFired = false
     this.pressing = true
+    this.mainShow = false
     this.countdown(3)
   },
 
@@ -353,33 +359,40 @@ export default {
 </script>
 
 <style>
+/* 手环9 Pro 真实分辨率 336(宽)×480(高)，device-width 下按此排布 */
 .page {
   width: 100%;
   height: 100%;
   flex-direction: column;
-  align-items: center;
-  padding-left: 24px;
-  padding-right: 24px;
   background-color: #000000;
+}
+/* 主界面：占满整页，与主界面/倒计时 show 互斥 */
+.main {
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  padding-left: 22px;
+  padding-right: 22px;
 }
 .header {
   width: 100%;
-  height: 44px;
+  height: 56px;
   flex-shrink: 0;
   flex-direction: row;
   align-items: center;
 }
 .title {
   flex: 1;
-  font-size: 30px;
+  font-size: 32px;
   color: #ffffff;
   font-weight: bold;
 }
 .dot {
-  width: 26px;
-  height: 26px;
-  border-radius: 13px;
-  margin-left: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  margin-left: 10px;
 }
 .dot-red { background-color: #e53935; }
 .dot-green { background-color: #43a047; }
@@ -392,12 +405,12 @@ export default {
   justify-content: space-around;
   align-items: center;
 }
-/* 宽度用百分比：device-width 解析宽度小于 480 时也不会溢出屏幕/圆角 */
+/* 按钮高度 100px（较上版 84px 加大约 20%），三按钮共 300px 铺满剩余高度 */
 .btn {
   width: 100%;
-  height: 84px;
+  height: 100px;
   flex-shrink: 0;
-  border-radius: 22px;
+  border-radius: 24px;
   justify-content: center;
   align-items: center;
 }
@@ -405,24 +418,22 @@ export default {
 .lock { background-color: #c62828; }
 .start { background-color: #455a64; }
 .btn-t {
-  font-size: 32px;
+  font-size: 36px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
 }
-/* 全屏倒计时：absolute 覆盖（Vela 常用定位方式，不改变 minPlatformVersion） */
+/* 全屏倒计时：与 .main show 互斥，整页黑底 + 居中大数字，不依赖 absolute */
 .cd-layer {
-  position: absolute;
-  left: 0;
-  top: 0;
   width: 100%;
   height: 100%;
-  background-color: #000000;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
+  background-color: #000000;
 }
 .cd-text {
-  font-size: 200px;
+  font-size: 220px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
