@@ -1,11 +1,11 @@
 <template>
-  <!-- v1.3.0：布局完全回到 v1.2.3（用户确认按键大小/位置没问题），
-       唯一改动是全屏倒计时：改成三个「绝对定位满屏 + 盒内居中」的 layer，
-       每层里放一个固定数字，用 show 互斥切换。
-       不用 {{ 动态文本 }}（Vela 上曾整体渲染不出导致纯黑屏），
-       也不用共享文档流的容器（show=false 仍占位，会挤偏按钮/数字）。 -->
+  <!-- v1.3.1：布局完全回到 v1.2.3（用户确认按键大小/位置没问题），几何一个像素未动。
+       倒计时期间把 header/按钮组设为 show=false（仍占位，按钮位置不变），
+       避免 Vela 下黑底边缘漏出按钮色块。
+       倒计时改成三个「绝对定位 + 固定大尺寸 + 盒内居中」的 layer，
+       每层里放一个固定数字，用 show 互斥切换；不用 {{ 动态文本 }}（Vela 上曾整层渲染不出导致黑屏）。 -->
   <div class="page">
-    <div class="header">
+    <div class="header" show="{{ uiVisible }}">
       <text class="title">MZD控车</text>
       <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
       <div class="dot dot-red" show="{{ dotRed }}"></div>
@@ -14,7 +14,7 @@
     </div>
 
     <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
-    <div class="btn-group">
+    <div class="btn-group" show="{{ uiVisible }}">
       <div class="btn unlock" onclick="onUnlock">
         <text class="btn-t">解锁</text>
       </div>
@@ -26,8 +26,9 @@
       </div>
     </div>
 
-    <!-- 全屏倒计时：一个数字一层，每层独立绝对定位满屏黑底 + 盒内居中，层之间 show 互斥。
-         必须一层一个数字：同一容器内多个 text 用 show 隐藏时仍占位，会把数字挤偏。 -->
+    <!-- 全屏倒计时：一个数字一层，层间 show 互斥。
+         实机截图显示 100% 的 absolute 层没有铺满，故用固定大尺寸 + 负偏移，
+         中心点 (170,240) 仍对准屏幕正中 (168,240)。 -->
     <div class="cd-layer" show="{{ cdNum3 }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
       <text class="cd-text">3</text>
     </div>
@@ -111,6 +112,7 @@ export default {
     busy: false,
     reqId: '',
     timeoutReq: '',
+    uiVisible: true,
     cdNum3: false,
     cdNum2: false,
     cdNum1: false,
@@ -331,6 +333,7 @@ export default {
       pressTimer = null
     }
     pressActive = false
+    this.uiVisible = true
     this.cdNum3 = false
     this.cdNum2 = false
     this.cdNum1 = false
@@ -354,6 +357,7 @@ export default {
     if (!this.canSend()) return
     pressActive = true
     pressFired = false
+    this.uiVisible = false
     this.countdown(3)
   },
 
@@ -432,10 +436,10 @@ export default {
    绝对定位脱离文档流，show=false 时不占位、不挤压按钮 */
 .cd-layer {
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
+  left: -40px;
+  top: -40px;
+  width: 420px;
+  height: 560px;
   background-color: #000000;
   flex-direction: column;
   justify-content: center;
