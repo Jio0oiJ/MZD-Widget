@@ -1,32 +1,41 @@
 <template>
   <div class="page">
     <text class="title">MZD 控车</text>
-    <div class="status-box">
-      <text class="status {{ connected ? 'ok' : 'bad' }}">{{ status }}</text>
-    </div>
-    <text class="diag" if="{{ diag }}">{{ diag }}</text>
-    <text class="result {{ lastOk ? 'rok' : 'rbad' }}" if="{{ lastResult }}">{{ lastResult }}</text>
+    <text class="status">{{ status }}</text>
+    <text class="diag">{{ diag }}</text>
+    <text class="result">{{ lastResult }}</text>
 
-    <div class="btn unlock {{ busy ? 'dim' : '' }}" onclick="onUnlock">
+    <div class="btn unlock" onclick="onUnlock">
       <text class="btn-t">解锁</text>
     </div>
-    <div class="btn lock {{ busy ? 'dim' : '' }}" onclick="onLock">
+    <div class="btn lock" onclick="onLock">
       <text class="btn-t">上锁</text>
     </div>
+    <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+      <text class="btn-t">{{ startLabel }}</text>
+    </div>
 
-    <text class="hint">仅解锁/上锁 · 手机端需开启手环遥控</text>
+    <text class="hint">启动需长按 3 秒</text>
   </div>
 </template>
 
 <script>
 /**
- * 互联初始化放在 onReady（非 app.ux onCreate），避免冷启动拿到不可用实例。
- * 用 require 而非 import default——部分固件上 import 拿到的是包装对象，
- * instance() 返回的对象没有 send/diagnosis 方法。
+ * v1.1.0 / 手机端 v1.9.26：
+ * 1) 去掉动态 class + 条件节点，全部用固定 class / 固定文本节点，避免 Vela 在
+ *    状态频繁更新时整页重绘出现文字重影、彩色条纹（实机截图确认的渲染残留）。
+ * 2) 一键启动改为独立长按手势：手指按下后本地计时 3 秒，满 3 秒才发 start 且
+ *    携带 holdMs=3000；提前松开即取消，手机端还会二次校验该字段，防误触着车。
+ *
+ * 互联初始化仍放在 onReady（非 app.ux onCreate），避免冷启动拿到不可用实例。
  */
 var conn = null
 var seq = 0
 var ready = false
+var pressTimer = null
+var pressActive = false
+var pressFired = false
+var START_LABEL = '一键启动 · 长按3秒'
 
 function getConn() {
   if (conn) return conn
@@ -37,7 +46,6 @@ function getConn() {
     }
   } catch (e) { }
   if (!conn) {
-    // import 兜底（官方写法）
     try {
       var ic2 = require('@system.interconnect')
       var def = ic2 && ic2.default ? ic2.default : ic2
@@ -50,13 +58,13 @@ function getConn() {
 export default {
   private: {
     connected: false,
-    status: '初始化中…',
-    diag: '',
+    status: '● 初始化中…',
+    diag: '能力检测中…',
     lastResult: '',
-    lastOk: false,
     busy: false,
     reqId: '',
-    timeoutReq: ''
+    timeoutReq: '',
+    startLabel: '一键启动 · 长按3秒'
   },
 
   onReady() {
@@ -68,6 +76,7 @@ export default {
   },
 
   onDestroy() {
+    this.clearPress()
     if (!conn) return
     try {
       conn.onmessage = null
@@ -77,37 +86,43 @@ export default {
     } catch (e) { }
   },
 
+  setResult(text) {
+    if (this.lastResult !== text) this.lastResult = text
+  },
+
+  setStatus(text) {
+    if (this.status !== text) this.status = text
+  },
+
   initConn() {
     var self = this
     var c = getConn()
     if (!c) {
-      this.status = '互联不可用'
+      this.setStatus('● 互联不可用')
       this.diag = '无 @system.interconnect'
       return
     }
-    // 能力探测：把结果打在界面上，实机排查用
     var caps = []
     if (typeof c.send === 'function') caps.push('send')
     if (typeof c.diagnosis === 'function') caps.push('diag')
-    this.diag = '互联能力: ' + (caps.length ? caps.join('/') : '无')
+    this.diag = '能力: ' + (caps.length ? caps.join('/') : '无')
     if (typeof c.send !== 'function') {
-      this.status = '互联实例异常'
+      this.setStatus('● 互联实例异常')
       return
     }
 
     try {
       c.onopen = function () {
-        self.connected = true
-        self.status = '已连接手机'
+        self.setStatus('● 已连接手机')
         self.diagnose()
       }
       c.onclose = function () {
+        self.setStatus('● 未连接手机')
         self.connected = false
-        self.status = '未连接手机'
       }
       c.onerror = function (e) {
         self.connected = false
-        self.status = '连接异常'
+        self.setStatus('● 连接异常')
         self.diag = '错误: ' + ((e && e.data) || '未知')
       }
       c.onmessage = function (event) {
@@ -120,7 +135,7 @@ export default {
         self.onResult(msg)
       }
     } catch (e) {
-      this.status = '注册回调失败'
+      this.setStatus('● 注册回调失败')
       this.diag = '注册异常: ' + e.message
       return
     }
@@ -136,11 +151,11 @@ export default {
         success: function (data) {
           var ok = data && Number(data.status) === 0
           self.connected = !!ok
-          self.status = ok ? '已连接手机' : '未连接手机'
+          self.setStatus(ok ? '● 已连接手机' : '● 未连接手机')
         },
         fail: function () {
           self.connected = false
-          self.status = '未连接手机'
+          self.setStatus('● 未连接手机')
         }
       })
     } catch (e) { }
@@ -152,9 +167,11 @@ export default {
     if (msg.reqId !== this.reqId) return
     this.busy = false
     this.timeoutReq = ''
-    this.lastOk = !!msg.ok
-    this.lastResult = msg.ok ? '已发送' : ('失败: ' + (msg.msg || '未知'))
-    this.vibrate(msg.ok)
+    var ok = !!msg.ok
+    var m = msg.msg || ''
+    if (m.length > 18) m = m.substring(0, 18)
+    this.setResult(ok ? m : ('失败: ' + m))
+    this.vibrate(ok)
   },
 
   vibrate(ok) {
@@ -164,54 +181,106 @@ export default {
     } catch (e) { }
   },
 
-  sendCommand(action) {
-    if (this.busy) return
+  canSend() {
+    if (this.busy) {
+      this.setResult('上一条指令处理中')
+      return false
+    }
     if (!conn || !ready) {
-      this.lastResult = '互联未就绪'
-      this.lastOk = false
+      this.setResult('互联未就绪')
       this.vibrate(false)
-      return
+      return false
     }
     if (!this.connected) {
-      this.lastResult = '未连接手机'
-      this.lastOk = false
+      this.setResult('未连接手机')
       this.vibrate(false)
-      return
+      return false
     }
+    return true
+  },
+
+  sendCommand(action) {
+    if (!this.canSend()) return
     seq += 1
     var reqId = 'm' + Date.now() + '_' + seq
     this.busy = true
     this.reqId = reqId
     this.timeoutReq = reqId
-    this.lastResult = action === 'unlock' ? '解锁发送中…' : '上锁发送中…'
+    var label = action === 'unlock' ? '解锁' : (action === 'lock' ? '上锁' : '一键启动')
+    this.setResult(label + '发送中…')
     var self = this
-    // 8 秒无回执判超时，仅当仍是同一 reqId 才生效
+    // 启动流程手机端先回「已开始」，但仍给 15 秒兜底；普通指令 8 秒
+    var timeoutMs = action === 'start' ? 15000 : 8000
     setTimeout(function () {
       if (self.busy && self.timeoutReq === reqId) {
         self.busy = false
         self.timeoutReq = ''
-        self.lastOk = false
-        self.lastResult = '超时，未收到回执'
+        self.setResult('超时，未收到回执')
         self.vibrate(false)
       }
-    }, 8000)
+    }, timeoutMs)
 
+    var data = { type: 'mzd_cmd', action: action, reqId: reqId }
+    if (action === 'start') data.holdMs = 3000
     conn.send({
-      data: { type: 'mzd_cmd', action: action, reqId: reqId },
+      data: data,
       success: function () { },
       fail: function () {
         if (self.reqId !== reqId) return
         self.busy = false
         self.timeoutReq = ''
-        self.lastOk = false
-        self.lastResult = '发送失败'
+        self.setResult('发送失败')
         self.vibrate(false)
       }
     })
   },
 
   onUnlock() { this.sendCommand('unlock') },
-  onLock() { this.sendCommand('lock') }
+  onLock() { this.sendCommand('lock') },
+
+  clearPress() {
+    if (pressTimer !== null) {
+      clearTimeout(pressTimer)
+      pressTimer = null
+    }
+    pressActive = false
+    if (this.startLabel !== START_LABEL) this.startLabel = START_LABEL
+  },
+
+  countdown(left) {
+    if (!pressActive || pressFired) return
+    if (left <= 0) {
+      // 满 3 秒才真正下发；holdMs 让手机端二次确认，杜绝短按误着车
+      pressFired = true
+      this.clearPress()
+      this.sendCommand('start')
+      return
+    }
+    this.startLabel = '启动中 ' + left + 's'
+    var self = this
+    pressTimer = setTimeout(function () { self.countdown(left - 1) }, 1000)
+  },
+
+  onStartDown() {
+    if (pressActive) return
+    if (!this.canSend()) return
+    pressActive = true
+    pressFired = false
+    this.countdown(3)
+  },
+
+  onStartUp() {
+    if (!pressActive || pressFired) return
+    this.clearPress()
+    this.setResult('长按需 3 秒')
+    this.vibrate(false)
+  },
+
+  onStartCancel() {
+    if (!pressActive || pressFired) return
+    this.clearPress()
+    this.setResult('已取消')
+  }
 }
 </script>
 
@@ -219,62 +288,57 @@ export default {
 .page {
   flex-direction: column;
   align-items: center;
-  padding: 12px;
+  padding: 8px;
   background-color: #000000;
 }
 .title {
-  font-size: 28px;
+  font-size: 26px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
-  margin-top: 6px;
-}
-.status-box {
-  margin-top: 10px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  background-color: #1a1a1a;
+  margin-top: 4px;
 }
 .status {
-  font-size: 20px;
-  text-align: center;
-}
-.ok { color: #4cd964; }
-.bad { color: #ff6b6b; }
-.diag {
-  font-size: 13px;
-  color: #888888;
-  text-align: center;
-  margin-top: 6px;
-}
-.result {
-  font-size: 18px;
+  font-size: 19px;
+  color: #ffffff;
   text-align: center;
   margin-top: 8px;
 }
-.rok { color: #4cd964; }
-.rbad { color: #ffcc00; }
+.diag {
+  font-size: 13px;
+  color: #9e9e9e;
+  text-align: center;
+  margin-top: 4px;
+  height: 22px;
+}
+.result {
+  font-size: 17px;
+  color: #ffd54f;
+  text-align: center;
+  margin-top: 4px;
+  height: 30px;
+}
 .btn {
   width: 280px;
-  height: 90px;
-  border-radius: 20px;
-  margin-top: 16px;
+  height: 76px;
+  border-radius: 18px;
+  margin-top: 10px;
   justify-content: center;
   align-items: center;
 }
 .unlock { background-color: #2e7d32; }
 .lock { background-color: #c62828; }
-.dim { opacity: 0.5; }
+.start { background-color: #455a64; }
 .btn-t {
-  font-size: 32px;
+  font-size: 26px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
 }
 .hint {
   font-size: 13px;
-  color: #666666;
+  color: #9e9e9e;
   text-align: center;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 </style>

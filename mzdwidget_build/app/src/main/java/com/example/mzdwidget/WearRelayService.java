@@ -37,9 +37,10 @@ import java.util.concurrent.atomic.AtomicReference;
  *   · 手环 rpk 与本 App 用同一签名证书（手环 PEM 由本 App 的 debug.keystore 导出）。
  *   否则 node 鉴权会报 fingerprint 不一致，通信被拒。
  *
- * 安全：只接受白名单 action（unlock/lock），不开放 start/stall/search——
- * 手环误碰不能着车。指令走工作线程串行执行，带 3 秒节流 + reqId 去重，防连点。
- * 不做任何绕过 CarActions 的直连网络调用。
+ * 安全：默认只接受 unlock/lock；start 仅在手环明确长按 3 秒（消息带 holdMs>=3000）
+ * 且 reqId 去重 + 3 秒节流通过后才受理，并复用 CarActions.smartStartAndUnlock()
+ * 的完整三步流程（预锁车→确认启动→解锁）。stall/search 一律拒绝。
+ * 指令走工作线程串行执行；不做任何绕过 CarActions 的直连网络调用。
  */
 public final class WearRelayService extends Service {
 
@@ -131,7 +132,7 @@ public final class WearRelayService extends Service {
             n = new Notification.Builder(this, CHANNEL_ID)
                     .setSmallIcon(android.R.drawable.stat_sys_warning)
                     .setContentTitle("手环遥控已就绪")
-                    .setContentText("等待手环解锁/上锁指令")
+                    .setContentText("等待手环指令（启动需长按3秒）")
                     .setContentIntent(pi)
                     .setOngoing(true)
                     .build();
@@ -145,7 +146,7 @@ public final class WearRelayService extends Service {
             n = new Notification.Builder(this)
                     .setSmallIcon(android.R.drawable.stat_sys_warning)
                     .setContentTitle("手环遥控已就绪")
-                    .setContentText("等待手环解锁/上锁指令")
+                    .setContentText("等待手环指令（启动需长按3秒）")
                     .setContentIntent(pi)
                     .setOngoing(true)
                     .build();
@@ -250,8 +251,15 @@ public final class WearRelayService extends Service {
             JSONObject o = new JSONObject(text);
             if (!MSG_CMD.equals(o.optString("type"))) return;
             String a = o.optString("action");
-            if (!Api.CMD_UNLOCK.equals(a) && !Api.CMD_LOCK.equals(a)) {
+            boolean isStart = Api.CMD_START.equals(a);
+            if (!Api.CMD_UNLOCK.equals(a) && !Api.CMD_LOCK.equals(a) && !isStart) {
                 CtrlLog.w(TAG, "【手环】拒绝非白名单指令 action=" + a);
+                return;
+            }
+            // v1.9.26：启动需手环端真实长按 3 秒（本地计时后带 holdMs=3000 上报）。
+            // 短按/伪造消息不带该字段一律拒绝，避免误碰着车。
+            if (isStart && o.optInt("holdMs", 0) < 3000) {
+                CtrlLog.w(TAG, "【手环】拒绝未确认长按的启动指令");
                 return;
             }
             action = a;
@@ -301,6 +309,19 @@ public final class WearRelayService extends Service {
 
     /** 在工作线程执行真实指令，复用 CarActions 统一入口 */
     private void executeCommand(String action, String reqId) {
+        if (Api.CMD_START.equals(action)) {
+            // 长按启动流程可能持续数分钟（状态确认式轮询），先回「已开始」避免手环 8 秒超时；
+            // 流程结束后再以同一 reqId 回最终结果，手环端仍认这个 reqId。
+            CtrlLog.i(TAG, "【手环】长按3秒触发一键启动，复用 smartStartAndUnlock");
+            reply(reqId, action, true, "启动流程已开始");
+            CarActions.smartStartAndUnlock(getApplicationContext(), (ok, message) -> {
+                String m = message == null ? "" : message;
+                if (m.length() > 24) m = m.substring(0, 24);
+                CtrlLog.i(TAG, "【手环】一键启动结束 ok=" + ok + " " + m);
+                reply(reqId, action, ok, m);
+            });
+            return;
+        }
         boolean ok = false;
         String err = "";
         try {
