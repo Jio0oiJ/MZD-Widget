@@ -1,10 +1,13 @@
 <template>
-  <!-- v1.2.1 修复：根容器退回 v1.9.26 已验证可用的单 div（stack 会导致按钮偏左） -->
+  <!-- v1.2.2 极简大字界面：顶部标题 + 右侧状态圆点，三个大按钮，无文字状态行 -->
   <div class="page">
-    <text class="title">MZD 控车</text>
-    <text class="status">{{ status }}</text>
-    <text class="diag">{{ diag }}</text>
-    <text class="result">{{ lastResult }}</text>
+    <div class="header">
+      <text class="title">MZD控车</text>
+      <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
+      <div class="dot dot-red" show="{{ dotRed }}"></div>
+      <div class="dot dot-green" show="{{ dotGreen }}"></div>
+      <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
+    </div>
 
     <div class="btn unlock" onclick="onUnlock">
       <text class="btn-t">解锁</text>
@@ -16,32 +19,22 @@
       <text class="btn-t">一键启动 · 长按3秒</text>
     </div>
 
-    <text class="hint">启动需长按 3 秒</text>
-
-    <!--
-      全屏倒计时覆盖层：固定节点 + show 布尔切换。
-      用 absolute 盖在最上层，不隐藏 start 按钮节点——touchstart/touchend 的目标
-      始终是同一个按钮，提前松手取消能可靠触发（若把按钮 hide，touchend 会丢失）。
-    -->
+    <!-- 全屏倒计时：absolute 覆盖，保留 start 按钮节点确保松手取消可达 -->
     <div class="cd-layer" show="{{ pressing }}">
       <text class="cd-text">{{ cdText }}</text>
-      <text class="cd-hint">松开取消 · 3 秒后启动</text>
     </div>
   </div>
 </template>
 
 <script>
 /**
- * v1.2.1 / 手机端 v1.9.28 修复三项回归（v1.2.0 实机反馈）：
- * 1) 按钮偏左：去掉 <stack> 根容器，退回 v1.9.26 验证过的单 div.page；
- * 2) 点击只振动不发送：移除 canSend() 里的 !connected 硬拦截——互联诊断
- *    (diagnosis) 在部分时机返回未连接，但 send 实际可用；诊断仅用于状态显示，
- *    真实成败交给 conn.send 的 success/fail 与手机回执；
- * 3) 无全屏倒计时：动画不再依赖诊断结果，按下即显示，3-2-1 用单个文本节点，
- *    避免三个 show 表达式在 Vela 上的兼容问题。
+ * v1.2.2 / 手机端 v1.9.29 极简界面：
+ * - 顶部「MZD控车」+ 右侧圆点：红=未连接、绿=已连接、黄闪两下=指令已发送；
+ * - 去掉状态/能力/结果文字与底部提示，三个按钮放大；
+ * - 保留 v1.2.1 修复：单 div 根、canSend 不做 connected 硬拦截、松手取消可达。
  *
- * 保留：固定 class / 固定文本节点（防 v1.9.25 重影）、NFC 刷卡 1/2 下振动回执、
- * 长按满 3 秒才带 holdMs=3000 下发、手机端完整三步一键启动。
+ * 圆点用三个固定节点 + show 布尔切换（避免 Vela 动态 class 重绘重影）。
+ * 黄闪用 setTimeout 做 亮-灭-亮-灭 两轮，结束自动回到连接状态色。
  */
 var conn = null
 var seq = 0
@@ -49,6 +42,8 @@ var ready = false
 var pressTimer = null
 var pressActive = false
 var pressFired = false
+var flashTimer = null
+var flashSeq = 0
 
 function getConn() {
   if (conn) return conn
@@ -99,17 +94,21 @@ function vibrateOnce(ok) {
 export default {
   private: {
     connected: false,
-    status: '● 初始化中…',
-    diag: '能力检测中…',
     lastResult: '',
     busy: false,
     reqId: '',
     timeoutReq: '',
     pressing: false,
-    cdText: ''
+    cdText: '',
+    dotRed: true,
+    dotGreen: false,
+    dotYellow: false,
+    flashing: false,
+    flashOn: false
   },
 
   onReady() {
+    this.syncDot()
     this.initConn()
   },
 
@@ -119,6 +118,11 @@ export default {
 
   onDestroy() {
     this.clearPress()
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer)
+      flashTimer = null
+    }
+    flashSeq += 1
     if (!conn) return
     try {
       conn.onmessage = null
@@ -132,40 +136,71 @@ export default {
     if (this.lastResult !== text) this.lastResult = text
   },
 
-  setStatus(text) {
-    if (this.status !== text) this.status = text
+  /** 按连接状态 + 闪烁标志刷新三个圆点，只置一个为 true */
+  syncDot() {
+    if (this.flashing) {
+      this.dotRed = false
+      this.dotGreen = false
+      this.dotYellow = !!this.flashOn
+    } else {
+      this.dotRed = !this.connected
+      this.dotGreen = !!this.connected
+      this.dotYellow = false
+    }
+  },
+
+  /** 黄色闪两下：亮-灭-亮-灭，结束自动恢复连接色 */
+  flashDot() {
+    var self = this
+    flashSeq += 1
+    var mySeq = flashSeq
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer)
+      flashTimer = null
+    }
+    var steps = [true, false, true, false]
+    var i = 0
+    function next() {
+      if (mySeq !== flashSeq) return
+      if (i >= steps.length) {
+        self.flashing = false
+        self.flashOn = false
+        self.syncDot()
+        return
+      }
+      self.flashOn = steps[i]
+      self.syncDot()
+      i += 1
+      flashTimer = setTimeout(next, 180)
+    }
+    next()
   },
 
   initConn() {
     var self = this
     var c = getConn()
     if (!c) {
-      this.setStatus('● 互联不可用')
-      this.diag = '无 @system.interconnect'
+      this.syncDot()
       return
     }
-    var caps = []
-    if (typeof c.send === 'function') caps.push('send')
-    if (typeof c.diagnosis === 'function') caps.push('diag')
-    this.diag = '能力: ' + (caps.length ? caps.join('/') : '无')
     if (typeof c.send !== 'function') {
-      this.setStatus('● 互联实例异常')
+      this.syncDot()
       return
     }
 
     try {
       c.onopen = function () {
-        self.setStatus('● 已连接手机')
+        self.connected = true
+        self.syncDot()
         self.diagnose()
       }
       c.onclose = function () {
-        self.setStatus('● 未连接手机')
         self.connected = false
+        self.syncDot()
       }
       c.onerror = function (e) {
         self.connected = false
-        self.setStatus('● 连接异常')
-        self.diag = '错误: ' + ((e && e.data) || '未知')
+        self.syncDot()
       }
       c.onmessage = function (event) {
         var msg = null
@@ -177,8 +212,7 @@ export default {
         self.onResult(msg)
       }
     } catch (e) {
-      this.setStatus('● 注册回调失败')
-      this.diag = '注册异常: ' + e.message
+      this.syncDot()
       return
     }
     ready = true
@@ -193,11 +227,11 @@ export default {
         success: function (data) {
           var ok = data && Number(data.status) === 0
           self.connected = !!ok
-          self.setStatus(ok ? '● 已连接手机' : '● 未连接手机')
+          self.syncDot()
         },
         fail: function () {
           self.connected = false
-          self.setStatus('● 未连接手机')
+          self.syncDot()
         }
       })
     } catch (e) { }
@@ -205,19 +239,15 @@ export default {
 
   onResult(msg) {
     if (!msg || msg.type !== 'mzd_result') return
-    // 手机 NFC 刷卡切换的纯振动反馈：reqId 固定 nfc_vibrate，不参与按钮指令的 reqId 配对
+    // 手机 NFC 刷卡切换的纯振动反馈：reqId 固定 nfc_vibrate，不参与按钮指令配对
     if (msg.action === 'feedback') {
       if (msg.vibrate) vibrateTimes(msg.vibrate)
       return
     }
-    // 回执 reqId 必须与当前指令一致，防迟到旧回执错配到新指令
     if (msg.reqId !== this.reqId) return
     this.busy = false
     this.timeoutReq = ''
     var ok = !!msg.ok
-    var m = msg.msg || ''
-    if (m.length > 18) m = m.substring(0, 18)
-    this.setResult(ok ? m : ('失败: ' + m))
     if (ok && msg.vibrate) vibrateTimes(msg.vibrate)
     else vibrateOnce(ok)
   },
@@ -232,8 +262,7 @@ export default {
       vibrateOnce(false)
       return false
     }
-    // v1.2.1：不再用 diagnosis 结果拦截。诊断在 Vela 上偶发误报"未连接"，
-    // 但 send 实际可用（v1.9.26 实机已验证）；真实成败由 send 回调 + 手机回执判定。
+    // 不因 diagnosis 的偶发误报拦截发送，成败交给 send 回调 + 手机回执
     return true
   },
 
@@ -244,15 +273,12 @@ export default {
     this.busy = true
     this.reqId = reqId
     this.timeoutReq = reqId
-    var label = action === 'unlock' ? '解锁' : (action === 'lock' ? '上锁' : '一键启动')
-    this.setResult(label + '发送中…')
     var self = this
     var timeoutMs = action === 'start' ? 15000 : 8000
     setTimeout(function () {
       if (self.busy && self.timeoutReq === reqId) {
         self.busy = false
         self.timeoutReq = ''
-        self.setResult('超时，未收到回执')
         vibrateOnce(false)
       }
     }, timeoutMs)
@@ -261,12 +287,15 @@ export default {
     if (action === 'start') data.holdMs = 3000
     conn.send({
       data: data,
-      success: function () { },
+      success: function () {
+        // 指令已发出：黄点闪两下（与连接色互斥，结束自动恢复）
+        self.flashing = true
+        self.flashDot()
+      },
       fail: function () {
         if (self.reqId !== reqId) return
         self.busy = false
         self.timeoutReq = ''
-        self.setResult('发送失败')
         vibrateOnce(false)
       }
     })
@@ -310,14 +339,12 @@ export default {
   onStartUp() {
     if (!pressActive || pressFired) return
     this.clearPress()
-    this.setResult('长按需 3 秒')
     vibrateOnce(false)
   },
 
   onStartCancel() {
     if (!pressActive || pressFired) return
     this.clearPress()
-    this.setResult('已取消')
   }
 }
 </script>
@@ -328,41 +355,35 @@ export default {
   height: 100%;
   flex-direction: column;
   align-items: center;
-  padding: 8px;
   background-color: #000000;
 }
+.header {
+  width: 100%;
+  height: 52px;
+  flex-direction: row;
+  align-items: center;
+  padding-left: 16px;
+  padding-right: 16px;
+}
 .title {
-  font-size: 26px;
+  flex: 1;
+  font-size: 30px;
   color: #ffffff;
   font-weight: bold;
-  text-align: center;
-  margin-top: 4px;
 }
-.status {
-  font-size: 19px;
-  color: #ffffff;
-  text-align: center;
-  margin-top: 8px;
+.dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
 }
-.diag {
-  font-size: 13px;
-  color: #9e9e9e;
-  text-align: center;
-  margin-top: 4px;
-  height: 22px;
-}
-.result {
-  font-size: 17px;
-  color: #ffd54f;
-  text-align: center;
-  margin-top: 4px;
-  height: 30px;
-}
+.dot-red { background-color: #e53935; }
+.dot-green { background-color: #43a047; }
+.dot-yellow { background-color: #fdd835; }
 .btn {
-  width: 280px;
-  height: 76px;
-  border-radius: 18px;
+  width: 448px;
+  height: 84px;
   margin-top: 10px;
+  border-radius: 16px;
   justify-content: center;
   align-items: center;
 }
@@ -370,16 +391,10 @@ export default {
 .lock { background-color: #c62828; }
 .start { background-color: #455a64; }
 .btn-t {
-  font-size: 26px;
+  font-size: 34px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
-}
-.hint {
-  font-size: 13px;
-  color: #9e9e9e;
-  text-align: center;
-  margin-top: 10px;
 }
 /* 全屏倒计时：absolute 覆盖（Vela 常用定位方式，不改变 minPlatformVersion） */
 .cd-layer {
@@ -389,20 +404,13 @@ export default {
   width: 100%;
   height: 100%;
   background-color: #000000;
-  flex-direction: column;
   justify-content: center;
   align-items: center;
 }
 .cd-text {
-  font-size: 180px;
+  font-size: 200px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
-}
-.cd-hint {
-  font-size: 18px;
-  color: #9e9e9e;
-  text-align: center;
-  margin-top: 16px;
 }
 </style>
