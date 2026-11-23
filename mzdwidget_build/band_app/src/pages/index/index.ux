@@ -1,5 +1,5 @@
 <template>
-  <!-- v1.2.2 极简大字界面：顶部标题 + 右侧状态圆点，三个大按钮，无文字状态行 -->
+  <!-- v1.2.3 布局修复：按钮宽度改百分比自适应避免超屏，按钮组 flex:1 + space-around 纵向铺满 -->
   <div class="page">
     <div class="header">
       <text class="title">MZD控车</text>
@@ -9,14 +9,17 @@
       <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
     </div>
 
-    <div class="btn unlock" onclick="onUnlock">
-      <text class="btn-t">解锁</text>
-    </div>
-    <div class="btn lock" onclick="onLock">
-      <text class="btn-t">上锁</text>
-    </div>
-    <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-      <text class="btn-t">一键启动 · 长按3秒</text>
+    <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
+    <div class="btn-group">
+      <div class="btn unlock" onclick="onUnlock">
+        <text class="btn-t">解锁</text>
+      </div>
+      <div class="btn lock" onclick="onLock">
+        <text class="btn-t">上锁</text>
+      </div>
+      <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+        <text class="btn-t">一键启动 · 长按3秒</text>
+      </div>
     </div>
 
     <!-- 全屏倒计时：absolute 覆盖，保留 start 按钮节点确保松手取消可达 -->
@@ -28,7 +31,7 @@
 
 <script>
 /**
- * v1.2.2 / 手机端 v1.9.29 极简界面：
+ * v1.2.3 / 手机端 v1.9.30 极简界面：
  * - 顶部「MZD控车」+ 右侧圆点：红=未连接、绿=已连接、黄闪两下=指令已发送；
  * - 去掉状态/能力/结果文字与底部提示，三个按钮放大；
  * - 保留 v1.2.1 修复：单 div 根、canSend 不做 connected 硬拦截、松手取消可达。
@@ -355,15 +358,16 @@ export default {
   height: 100%;
   flex-direction: column;
   align-items: center;
+  padding-left: 24px;
+  padding-right: 24px;
   background-color: #000000;
 }
 .header {
   width: 100%;
-  height: 52px;
+  height: 44px;
+  flex-shrink: 0;
   flex-direction: row;
   align-items: center;
-  padding-left: 16px;
-  padding-right: 16px;
 }
 .title {
   flex: 1;
@@ -375,15 +379,25 @@ export default {
   width: 26px;
   height: 26px;
   border-radius: 13px;
+  margin-left: 8px;
 }
 .dot-red { background-color: #e53935; }
 .dot-green { background-color: #43a047; }
 .dot-yellow { background-color: #fdd835; }
+/* 按钮组：占满 header 以下全部高度，三个按钮均匀铺开（含上下留白） */
+.btn-group {
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+}
+/* 宽度用百分比：device-width 解析宽度小于 480 时也不会溢出屏幕/圆角 */
 .btn {
-  width: 448px;
+  width: 100%;
   height: 84px;
-  margin-top: 10px;
-  border-radius: 16px;
+  flex-shrink: 0;
+  border-radius: 22px;
   justify-content: center;
   align-items: center;
 }
@@ -391,7 +405,7 @@ export default {
 .lock { background-color: #c62828; }
 .start { background-color: #455a64; }
 .btn-t {
-  font-size: 34px;
+  font-size: 32px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
