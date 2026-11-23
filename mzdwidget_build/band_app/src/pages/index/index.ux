@@ -1,42 +1,47 @@
 <template>
-  <stack class="root">
-    <div class="page">
-      <text class="title">MZD 控车</text>
-      <text class="status">{{ status }}</text>
-      <text class="diag">{{ diag }}</text>
-      <text class="result">{{ lastResult }}</text>
+  <!-- v1.2.1 修复：根容器退回 v1.9.26 已验证可用的单 div（stack 会导致按钮偏左） -->
+  <div class="page">
+    <text class="title">MZD 控车</text>
+    <text class="status">{{ status }}</text>
+    <text class="diag">{{ diag }}</text>
+    <text class="result">{{ lastResult }}</text>
 
-      <div class="btn unlock" onclick="onUnlock">
-        <text class="btn-t">解锁</text>
-      </div>
-      <div class="btn lock" onclick="onLock">
-        <text class="btn-t">上锁</text>
-      </div>
-      <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-        <text class="btn-t">一键启动 · 长按3秒</text>
-      </div>
-
-      <text class="hint">启动需长按 3 秒</text>
+    <div class="btn unlock" onclick="onUnlock">
+      <text class="btn-t">解锁</text>
+    </div>
+    <div class="btn lock" onclick="onLock">
+      <text class="btn-t">上锁</text>
+    </div>
+    <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+      <text class="btn-t">一键启动 · 长按3秒</text>
     </div>
 
-    <!-- 全屏倒计时：固定节点 + show 切换，不删 VDOM，避免 Vela 重绘重影 -->
-    <div class="cd-mask" show="{{ pressing }}">
-      <text class="cd-num" show="{{ cdNum == 3 }}">3</text>
-      <text class="cd-num" show="{{ cdNum == 2 }}">2</text>
-      <text class="cd-num" show="{{ cdNum == 1 }}">1</text>
+    <text class="hint">启动需长按 3 秒</text>
+
+    <!--
+      全屏倒计时覆盖层：固定节点 + show 布尔切换。
+      用 absolute 盖在最上层，不隐藏 start 按钮节点——touchstart/touchend 的目标
+      始终是同一个按钮，提前松手取消能可靠触发（若把按钮 hide，touchend 会丢失）。
+    -->
+    <div class="cd-layer" show="{{ pressing }}">
+      <text class="cd-text">{{ cdText }}</text>
       <text class="cd-hint">松开取消 · 3 秒后启动</text>
     </div>
-  </stack>
+  </div>
 </template>
 
 <script>
 /**
- * v1.2.0 / 手机端 v1.9.27：
- * 1) 固定 class + 固定文本节点 + show 控制覆盖层，避免 Vela 动态 class / if 造成重绘重影；
- * 2) 长按 3 秒一键启动：手指按下即全屏播放 3-2-1，提前松开取消；
- * 3) 回执带 vibrate 时按次数振动（手机 NFC 刷卡切换：解锁 1 下 / 上锁 2 下）。
+ * v1.2.1 / 手机端 v1.9.28 修复三项回归（v1.2.0 实机反馈）：
+ * 1) 按钮偏左：去掉 <stack> 根容器，退回 v1.9.26 验证过的单 div.page；
+ * 2) 点击只振动不发送：移除 canSend() 里的 !connected 硬拦截——互联诊断
+ *    (diagnosis) 在部分时机返回未连接，但 send 实际可用；诊断仅用于状态显示，
+ *    真实成败交给 conn.send 的 success/fail 与手机回执；
+ * 3) 无全屏倒计时：动画不再依赖诊断结果，按下即显示，3-2-1 用单个文本节点，
+ *    避免三个 show 表达式在 Vela 上的兼容问题。
  *
- * 互联初始化放在 onReady（非 app.ux onCreate），避免冷启动拿到不可用实例。
+ * 保留：固定 class / 固定文本节点（防 v1.9.25 重影）、NFC 刷卡 1/2 下振动回执、
+ * 长按满 3 秒才带 holdMs=3000 下发、手机端完整三步一键启动。
  */
 var conn = null
 var seq = 0
@@ -101,7 +106,7 @@ export default {
     reqId: '',
     timeoutReq: '',
     pressing: false,
-    cdNum: 0
+    cdText: ''
   },
 
   onReady() {
@@ -227,11 +232,8 @@ export default {
       vibrateOnce(false)
       return false
     }
-    if (!this.connected) {
-      this.setResult('未连接手机')
-      vibrateOnce(false)
-      return false
-    }
+    // v1.2.1：不再用 diagnosis 结果拦截。诊断在 Vela 上偶发误报"未连接"，
+    // 但 send 实际可用（v1.9.26 实机已验证）；真实成败由 send 回调 + 手机回执判定。
     return true
   },
 
@@ -280,7 +282,7 @@ export default {
     }
     pressActive = false
     this.pressing = false
-    this.cdNum = 0
+    this.cdText = ''
   },
 
   countdown(left) {
@@ -291,7 +293,7 @@ export default {
       this.sendCommand('start')
       return
     }
-    this.cdNum = left
+    this.cdText = '' + left
     var self = this
     pressTimer = setTimeout(function () { self.countdown(left - 1) }, 1000)
   },
@@ -302,7 +304,6 @@ export default {
     pressActive = true
     pressFired = false
     this.pressing = true
-    this.cdNum = 3
     this.countdown(3)
   },
 
@@ -322,11 +323,9 @@ export default {
 </script>
 
 <style>
-.root {
+.page {
   width: 100%;
   height: 100%;
-}
-.page {
   flex-direction: column;
   align-items: center;
   padding: 8px;
@@ -382,7 +381,11 @@ export default {
   text-align: center;
   margin-top: 10px;
 }
-.cd-mask {
+/* 全屏倒计时：absolute 覆盖（Vela 常用定位方式，不改变 minPlatformVersion） */
+.cd-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
   background-color: #000000;
@@ -390,8 +393,8 @@ export default {
   justify-content: center;
   align-items: center;
 }
-.cd-num {
-  font-size: 220px;
+.cd-text {
+  font-size: 180px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
@@ -400,6 +403,6 @@ export default {
   font-size: 18px;
   color: #9e9e9e;
   text-align: center;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 </style>
