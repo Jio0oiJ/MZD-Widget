@@ -1,8 +1,8 @@
 {
   "package": "com.example.mzdwidget",
   "name": "MZD控车",
-  "versionName": "1.2.8",
-  "versionCode": 11,
+  "versionName": "1.2.9",
+  "versionCode": 12,
   "minPlatformVersion": 1030,
   "icon": "/common/logo.png",
   "deviceTypeList": ["watch"],
