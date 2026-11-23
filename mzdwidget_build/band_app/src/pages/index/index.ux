@@ -1,44 +1,52 @@
 <template>
-  <!-- v1.2.9：放弃所有 flex 撑高/均分与 show 互斥满屏容器（实机已证伪：Vela 上
-       flex:1 不撑高、隐藏容器仍占布局空间，导致按钮堆上半屏、数字被挤出屏外）。
-       本版所有顶层元素 position:absolute + 固定像素坐标，彼此独立不共享文档流；
-       倒计时层绝对定位盖在最上，show=false 不渲染不拦截点击（v1.2.3 实机已验证）。 -->
+  <!-- v1.3.0：布局完全回到 v1.2.3（用户确认按键大小/位置没问题），
+       唯一改动是全屏倒计时：改成三个「绝对定位满屏 + 盒内居中」的 layer，
+       每层里放一个固定数字，用 show 互斥切换。
+       不用 {{ 动态文本 }}（Vela 上曾整体渲染不出导致纯黑屏），
+       也不用共享文档流的容器（show=false 仍占位，会挤偏按钮/数字）。 -->
   <div class="page">
     <div class="header">
       <text class="title">MZD控车</text>
+      <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
       <div class="dot dot-red" show="{{ dotRed }}"></div>
       <div class="dot dot-green" show="{{ dotGreen }}"></div>
       <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
     </div>
 
-    <div class="btn unlock" onclick="onUnlock"><text class="btn-t">解锁</text></div>
-    <div class="btn lock" onclick="onLock"><text class="btn-t">上锁</text></div>
-    <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-      <text class="btn-t">一键启动</text>
+    <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
+    <div class="btn-group">
+      <div class="btn unlock" onclick="onUnlock">
+        <text class="btn-t">解锁</text>
+      </div>
+      <div class="btn lock" onclick="onLock">
+        <text class="btn-t">上锁</text>
+      </div>
+      <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+        <text class="btn-t">一键启动</text>
+      </div>
     </div>
 
-    <!-- 全屏倒计时：绝对定位覆盖层，盒内居中数字；show=false 时不渲染、不拦截按钮点击 -->
-    <div class="cd-layer" show="{{ pressing }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-      <text class="cd-text" show="{{ cdNum3 }}">3</text>
-      <text class="cd-text" show="{{ cdNum2 }}">2</text>
-      <text class="cd-text" show="{{ cdNum1 }}">1</text>
+    <!-- 全屏倒计时：一个数字一层，每层独立绝对定位满屏黑底 + 盒内居中，层之间 show 互斥。
+         必须一层一个数字：同一容器内多个 text 用 show 隐藏时仍占位，会把数字挤偏。 -->
+    <div class="cd-layer" show="{{ cdNum3 }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+      <text class="cd-text">3</text>
+    </div>
+    <div class="cd-layer" show="{{ cdNum2 }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+      <text class="cd-text">2</text>
+    </div>
+    <div class="cd-layer" show="{{ cdNum1 }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+      <text class="cd-text">1</text>
     </div>
   </div>
 </template>
 
 <script>
 /**
- * v1.2.9 / 手机端 v1.9.36 极简界面：
- * - 顶部「MZD控车」+ 右侧圆点：红=未连接、绿=已连接、黄闪两下=指令已发送；
- * - 去掉状态/能力/结果文字与底部提示，三个按钮放大；
- * - 保留 v1.2.1 修复：canSend 不做 connected 硬拦截、松手取消可达。
+ * v1.3.0 / 手机端 v1.9.37：
+ * - 布局整体回到 v1.2.3（百分比宽度按钮 + 按钮组纵向铺满，用户确认大小位置 OK）；
+ * - 倒计时改为三个固定数字节点 + show 切换，容器 absolute 满屏 + 盒内居中。
  *
- * 圆点、倒计时数字都用固定节点 + show 布尔切换（避免 Vela 动态 class 重绘重影）。
- * v1.2.9 关键修复（依据 v1.2.8 两张实机截图）：Vela 上 show=false 的容器仍占布局空间——
- * 隐藏的倒计时盒把按钮挤到上半屏、隐藏的按钮组把数字顶到屏幕底部只剩白弧。
- * 本版所有顶层元素改 position:absolute + 固定像素坐标，彼此独立不共享文档流：
- *   - 按钮绝对定位在 top 70/184/298，宽292高100，不依赖 flex 撑高或 show 占位；
- *   - 倒计时层绝对定位覆盖整页，show=false 不渲染不拦截点击（v1.2.3 实机已验证）。
+ * 圆点用三个固定节点 + show 布尔切换（避免 Vela 动态 class 重绘重影）。
  * 黄闪用 setTimeout 做 亮-灭-亮-灭 两轮，结束自动回到连接状态色。
  */
 var conn = null
@@ -103,11 +111,9 @@ export default {
     busy: false,
     reqId: '',
     timeoutReq: '',
-    pressing: false,
-    mainShow: true,
-    cdNum1: false,
-    cdNum2: false,
     cdNum3: false,
+    cdNum2: false,
+    cdNum1: false,
     dotRed: true,
     dotGreen: false,
     dotYellow: false,
@@ -312,8 +318,8 @@ export default {
   onUnlock() { this.sendCommand('unlock') },
   onLock() { this.sendCommand('lock') },
 
-  /** 倒计时数字用三个固定节点 show 切换（同圆点机制，避免 Vela 动态文本整页切换时黑屏） */
-  syncCd(n) {
+  /** 只切数字节点，不碰 pressing（松手取消靠 pressing=false 直接关层） */
+  setCdNum(n) {
     this.cdNum3 = n === 3
     this.cdNum2 = n === 2
     this.cdNum1 = n === 1
@@ -325,9 +331,9 @@ export default {
       pressTimer = null
     }
     pressActive = false
-    this.pressing = false
-    this.mainShow = true
-    this.syncCd(0)
+    this.cdNum3 = false
+    this.cdNum2 = false
+    this.cdNum1 = false
   },
 
   countdown(left) {
@@ -338,7 +344,7 @@ export default {
       this.sendCommand('start')
       return
     }
-    this.syncCd(left)
+    this.setCdNum(left)
     var self = this
     pressTimer = setTimeout(function () { self.countdown(left - 1) }, 1000)
   },
@@ -348,8 +354,6 @@ export default {
     if (!this.canSend()) return
     pressActive = true
     pressFired = false
-    this.pressing = true
-    this.mainShow = false
     this.countdown(3)
   },
 
@@ -367,21 +371,19 @@ export default {
 </script>
 
 <style>
-/* 手环9 Pro：336(宽)×480(高)。v1.2.9 全部改 position:absolute + 固定像素坐标，
-   每个顶层元素彼此独立、不共享文档流：不依赖 flex 撑高/均分，也不受 show 隐藏节点占位影响。 */
 .page {
-  position: relative;
   width: 100%;
   height: 100%;
+  flex-direction: column;
+  align-items: center;
+  padding-left: 24px;
+  padding-right: 24px;
   background-color: #000000;
 }
-/* 标题栏：绝对定位在顶部，左右 22px。横向 flex(row) 排列在 Vela 已验证正常 */
 .header {
-  position: absolute;
-  left: 22px;
-  top: 0px;
-  width: 292px;
-  height: 56px;
+  width: 100%;
+  height: 44px;
+  flex-shrink: 0;
   flex-direction: row;
   align-items: center;
 }
@@ -392,49 +394,53 @@ export default {
   font-weight: bold;
 }
 .dot {
-  width: 22px;
-  height: 22px;
-  border-radius: 11px;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
   margin-left: 8px;
 }
 .dot-red { background-color: #e53935; }
 .dot-green { background-color: #43a047; }
 .dot-yellow { background-color: #fdd835; }
-/* 三个按钮：绝对定位，固定 top/left/height，彼此完全独立。
-   宽 292 = 336 - 22*2；高 100（用户已确认大小 OK）；间距 14px。
-   top: 解锁 70 / 上锁 184 / 一键启动 298，底部到 398，屏高 480 留 82px 留白 */
+/* 按钮组：占满 header 以下全部高度，三个按钮均匀铺开（含上下留白） */
+.btn-group {
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-around;
+  align-items: center;
+}
+/* 宽度用百分比：device-width 解析宽度小于 480 时也不会溢出屏幕/圆角 */
 .btn {
-  position: absolute;
-  left: 22px;
-  width: 292px;
-  height: 100px;
-  border-radius: 24px;
+  width: 100%;
+  height: 84px;
+  flex-shrink: 0;
+  border-radius: 22px;
   justify-content: center;
   align-items: center;
 }
-.unlock { top: 70px; background-color: #2e7d32; }
-.lock   { top: 184px; background-color: #c62828; }
-.start  { top: 298px; background-color: #455a64; }
+.unlock { background-color: #2e7d32; }
+.lock { background-color: #c62828; }
+.start { background-color: #455a64; }
 .btn-t {
-  font-size: 36px;
+  font-size: 32px;
   color: #ffffff;
   font-weight: bold;
   text-align: center;
 }
-/* 全屏倒计时：绝对定位覆盖整个页面，盖在按钮之上。show=false 不渲染、不拦截点击
-   （v1.2.3 实机已验证：此结构下能看到数字、按钮仍可点击）。盒内居中数字 */
+/* 全屏倒计时：absolute 满屏黑底 + 盒内居中（两个机制均实机验证可用）；
+   绝对定位脱离文档流，show=false 时不占位、不挤压按钮 */
 .cd-layer {
   position: absolute;
-  left: 0px;
-  top: 0px;
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
+  background-color: #000000;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: #000000;
 }
-/* 三个固定数字节点用 show 切换（同圆点机制）；show=false 不占位，唯一可见节点由盒内居中 */
 .cd-text {
   font-size: 200px;
   color: #ffffff;
