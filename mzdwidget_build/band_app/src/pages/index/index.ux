@@ -1,48 +1,50 @@
 <template>
-  <!-- v1.2.5：按手环9 Pro 真实 336×480 重排；主界面/倒计时用 show 互斥整页切换，数字用固定节点 show 切换 -->
+  <!-- v1.2.6：放弃「满屏容器 show 互斥切换」（Vela 上整页切换渲染失败→纯黑屏）。
+       改为：page/header 常驻，按钮与倒计时盒在同一个 btn-group 内用 show 同级互换，
+       数字节点用 div 包裹 + show 切换（与已验证正常的圆点完全同一套机制）。 -->
   <div class="page" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-    <div class="main" show="{{ mainShow }}">
-      <div class="header">
-        <text class="title">MZD控车</text>
-        <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
-        <div class="dot dot-red" show="{{ dotRed }}"></div>
-        <div class="dot dot-green" show="{{ dotGreen }}"></div>
-        <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
-      </div>
-
-      <!-- 按钮组占满 header 以下的全部高度，三个按钮沿垂直方向均匀铺开 -->
-      <div class="btn-group">
-        <div class="btn unlock" onclick="onUnlock">
-          <text class="btn-t">解锁</text>
-        </div>
-        <div class="btn lock" onclick="onLock">
-          <text class="btn-t">上锁</text>
-        </div>
-        <!-- touchend/cancel 同时绑在按钮和根容器，确保松手取消在整页切换后仍可达 -->
-        <div class="btn start" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-          <text class="btn-t">一键启动</text>
-        </div>
-      </div>
+    <div class="header">
+      <text class="title">MZD控车</text>
+      <!-- 三个固定圆点节点用 show 切换，只显示一个；不用动态 class（防重影） -->
+      <div class="dot dot-red" show="{{ dotRed }}"></div>
+      <div class="dot dot-green" show="{{ dotGreen }}"></div>
+      <div class="dot dot-yellow" show="{{ dotYellow }}"></div>
     </div>
 
-    <!-- 全屏倒计时：与主界面 show 互斥，整页黑底；三个固定数字节点用 show 切换（同圆点机制，不用动态文本绑定，防 Vela 黑屏） -->
-    <div class="cd-layer" show="{{ pressing }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
-      <text class="cd-text" show="{{ cdNum3 }}">3</text>
-      <text class="cd-text" show="{{ cdNum2 }}">2</text>
-      <text class="cd-text" show="{{ cdNum1 }}">1</text>
+    <!-- 按钮组占满 header 以下的全部高度；三个按钮与倒计时盒 show 互斥，同为它的子节点 -->
+    <div class="btn-group">
+      <div class="btn unlock" show="{{ mainShow }}" onclick="onUnlock">
+        <text class="btn-t">解锁</text>
+      </div>
+      <div class="btn lock" show="{{ mainShow }}" onclick="onLock">
+        <text class="btn-t">上锁</text>
+      </div>
+      <!-- touchend/cancel 同时绑在按钮、倒计时盒和根容器，确保松手取消可靠 -->
+      <div class="btn start" show="{{ mainShow }}" ontouchstart="onStartDown" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+        <text class="btn-t">一键启动</text>
+      </div>
+
+      <!-- 倒计时盒：与三个按钮同级 show 互换，flex:1 占满按钮区，数字用 div+show（同圆点） -->
+      <div class="cd-box" show="{{ pressing }}" ontouchend="onStartUp" ontouchcancel="onStartCancel">
+        <div class="cd-num" show="{{ cdNum3 }}"><text class="cd-text">3</text></div>
+        <div class="cd-num" show="{{ cdNum2 }}"><text class="cd-text">2</text></div>
+        <div class="cd-num" show="{{ cdNum1 }}"><text class="cd-text">1</text></div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
 /**
- * v1.2.5 / 手机端 v1.9.32 极简界面：
+ * v1.2.6 / 手机端 v1.9.33 极简界面：
  * - 顶部「MZD控车」+ 右侧圆点：红=未连接、绿=已连接、黄闪两下=指令已发送；
  * - 去掉状态/能力/结果文字与底部提示，三个按钮放大；
  * - 保留 v1.2.1 修复：单 div 根、canSend 不做 connected 硬拦截、松手取消可达。
  *
- * 圆点、倒计时数字都用三个固定节点 + show 布尔切换（避免 Vela 动态 class 重绘重影、
- * 以及整页切换时动态文本绑定导致的黑屏）。
+ * 圆点、倒计时数字都用固定 div 节点 + show 布尔切换（避免 Vela 动态 class 重绘重影）。
+ * v1.2.6 关键修复：不再隐藏满屏 .main 容器——Vela 上两个 100% 高度容器 show 互斥切换
+ * 会让新显示容器的内容渲染失败（纯黑屏）。改为 page/header 常驻，三个按钮与倒计时盒
+ * 在同一个 btn-group 内同级 show 互换，数字节点用 div 包裹（与圆点完全同一套机制）。
  * 黄闪用 setTimeout 做 亮-灭-亮-灭 两轮，结束自动回到连接状态色。
  */
 var conn = null
@@ -377,13 +379,6 @@ export default {
   height: 100%;
   flex-direction: column;
   background-color: #000000;
-}
-/* 主界面：占满整页，与主界面/倒计时 show 互斥 */
-.main {
-  width: 100%;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
   padding-left: 22px;
   padding-right: 22px;
 }
@@ -435,14 +430,20 @@ export default {
   font-weight: bold;
   text-align: center;
 }
-/* 全屏倒计时：与 .main show 互斥，整页黑底 + 居中大数字，不依赖 absolute */
-.cd-layer {
+/* 倒计时盒：与三个按钮同在 btn-group 内 show 互换，flex:1 占满按钮区，不隐藏任何满屏容器 */
+.cd-box {
   width: 100%;
-  height: 100%;
+  flex: 1;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: #000000;
+}
+/* 数字用 div 包裹 + show 切换（与圆点 div+show 完全同一套机制，Vela 已验证可靠） */
+.cd-num {
+  width: 100%;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
 }
 .cd-text {
   font-size: 200px;
