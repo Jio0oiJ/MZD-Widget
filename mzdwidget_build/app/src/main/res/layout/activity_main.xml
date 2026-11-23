@@ -303,6 +303,17 @@
                 android:textColor="#888888" android:textSize="12sp"
                 android:layout_marginTop="2dp" />
 
+            <Button android:id="@+id/btn_nfc_card"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="NFC 刷卡切换锁车（录入/切换）" android:textSize="13sp"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="#455A64" android:textColor="#FFFFFF" />
+            <TextView
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="需手机支持 NFC。先录入门禁卡 UID，再贴同卡按实时车况切换：已锁→解锁，已解锁→上锁；行驶中/车况未知不发指令。"
+                android:textColor="#888888" android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+
             <Button android:id="@+id/btn_accessibility"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="无障碍保活：点击去授权（可选）" android:textSize="13sp"

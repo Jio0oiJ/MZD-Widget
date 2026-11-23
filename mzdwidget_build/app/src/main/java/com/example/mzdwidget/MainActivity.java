@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
     private boolean updatingThresholdUi = false; // v1.9.23：阈值输入框互相刷新时防 TextWatcher 重入
-    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility;
+    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility, btnNfcCard;
     private CheckBox cbBtEnable, cbWearEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -150,6 +150,7 @@ public class MainActivity extends Activity {
         cbWearEnable = findViewById(R.id.cb_wear_enable);
         btnPickBt = findViewById(R.id.btn_pick_bt);
         btnAccessibility = findViewById(R.id.btn_accessibility);
+        btnNfcCard = findViewById(R.id.btn_nfc_card);
         refreshAccessibilityButton();
         btnAccessibility.setOnClickListener(v -> {
             new AlertDialog.Builder(MainActivity.this)
@@ -200,6 +201,7 @@ public class MainActivity extends Activity {
         btnSaveToken.setOnClickListener(v -> doSaveToken());
         btnRefresh.setOnClickListener(v -> doRefresh());
         btnViewLog.setOnClickListener(v -> showCtrlLogDialog());
+        btnNfcCard.setOnClickListener(v -> startActivity(new Intent(this, NfcCardActivity.class)));
         btnLogout.setOnClickListener(v -> {
             Prefs.clear(this);
             onCredentialChanged();
