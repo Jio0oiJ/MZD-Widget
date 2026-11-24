@@ -122,7 +122,8 @@ public final class Prefs {
     /** v1.9.27：NFC 刷卡切换的目标卡 UID；空字符串表示尚未录入 */
     public static String nfcCardUid(Context c) { return btPrefs(c).getString(K_NFC_UID, ""); }
     public static void setNfcCardUid(Context c, String uid) {
-        btPrefs(c).edit().putString(K_NFC_UID, uid == null ? "" : uid.trim().toUpperCase()).apply();
+        // v1.9.46：录入后立即贴卡可能读到旧值，改同步落盘
+        btPrefs(c).edit().putString(K_NFC_UID, uid == null ? "" : uid.trim().toUpperCase()).commit();
     }
     /** BLE 扫描：连续多少秒扫不到目标设备即判定离开，默认 30 秒 */
     public static int btAwaySec(Context c) { return btPrefs(c).getInt(K_BT_AWAY_SEC, 30); }

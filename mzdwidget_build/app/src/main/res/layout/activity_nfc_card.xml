@@ -5,7 +5,12 @@
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="NFC 刷卡切换锁车" android:textSize="20sp" android:textColor="#222222"
-        android:gravity="center" android:paddingBottom="14dp" />
+        android:gravity="center" android:paddingBottom="10dp" />
+
+    <TextView android:id="@+id/tv_nfc_state"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="NFC 状态：检测中…" android:textSize="13sp" android:textColor="#455A64"
+        android:paddingBottom="10dp" />
 
     <TextView android:id="@+id/tv_nfc_uid"
         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -15,20 +20,26 @@
     <TextView android:id="@+id/tv_nfc_status"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="请把卡片贴近手机背面 NFC 感应区" android:textSize="15sp" android:textColor="#8A1A2B"
-        android:minLines="3" android:paddingBottom="16dp" />
+        android:minLines="4" android:paddingBottom="16dp" />
 
     <Button android:id="@+id/btn_nfc_enroll"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="录入当前卡片（下次贴卡识别为此卡）"
+        android:text="录入当前卡片（贴卡后自动保存）"
         android:textSize="14sp" android:backgroundTint="#455A64" android:textColor="#FFFFFF" />
 
     <Button android:id="@+id/btn_nfc_switch_mode"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="切换为刷卡模式（按实时车况解锁/上锁）"
-        android:textSize="14sp" android:layout_marginTop="10dp"
+        android:text="刷卡模式（按实时车况解锁/上锁）"
+        android:textSize="14sp" android:layout_marginTop="8dp"
         android:backgroundTint="#2E7D32" android:textColor="#FFFFFF" />
 
+    <Button android:id="@+id/btn_nfc_retry"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="重新启用 NFC 监听"
+        android:textSize="14sp" android:layout_marginTop="8dp"
+        android:backgroundTint="#6D4C41" android:textColor="#FFFFFF" />
+
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="仅读取卡片 UID 识别指定卡，不解密扇区、不复制卡片。指令与桌面按钮共用同一入口，写指令日志。"
+        android:text="仅读取卡片 UID 识别指定卡，不解密扇区、不复制卡片。贴卡前请保持亮屏；部分卡的 UID 每次读取会变化，若录入后贴卡仍提示「非目标卡」，请换用固定 UID 的门禁卡。"
         android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="16dp" />
 </LinearLayout>
