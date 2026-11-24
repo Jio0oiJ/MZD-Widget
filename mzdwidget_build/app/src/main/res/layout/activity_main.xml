@@ -303,6 +303,12 @@
                 android:textColor="#888888" android:textSize="12sp"
                 android:layout_marginTop="2dp" />
 
+            <Button android:id="@+id/btn_wear_diag"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="手环互联诊断（红点排查）" android:textSize="13sp"
+                android:layout_marginTop="6dp"
+                android:backgroundTint="#6D4C41" android:textColor="#FFFFFF" />
+
             <Button android:id="@+id/btn_nfc_card"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="NFC 刷卡切换锁车（录入/切换）" android:textSize="13sp"

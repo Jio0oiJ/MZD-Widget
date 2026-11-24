@@ -9,8 +9,11 @@ import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -58,7 +61,16 @@ public class MainActivity extends Activity {
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
     private boolean updatingThresholdUi = false; // v1.9.23：阈值输入框互相刷新时防 TextWatcher 重入
-    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility, btnNfcCard;
+    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility, btnNfcCard, btnWearDiag;
+
+    /** v1.9.39：接收 WearRelayService 的互联诊断结果并显示在日志区 */
+    private final BroadcastReceiver wearDiagReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null || !WearRelayService.ACTION_WEAR_DIAG.equals(intent.getAction())) return;
+            String text = intent.getStringExtra(WearRelayService.EXTRA_WEAR_DIAG_TEXT);
+            logMsg("【手环诊断】" + (text == null ? "无结果" : text));
+        }
+    };
     private CheckBox cbBtEnable, cbWearEnable;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -151,6 +163,7 @@ public class MainActivity extends Activity {
         btnPickBt = findViewById(R.id.btn_pick_bt);
         btnAccessibility = findViewById(R.id.btn_accessibility);
         btnNfcCard = findViewById(R.id.btn_nfc_card);
+        btnWearDiag = findViewById(R.id.btn_wear_diag);
         refreshAccessibilityButton();
         btnAccessibility.setOnClickListener(v -> {
             new AlertDialog.Builder(MainActivity.this)
@@ -202,6 +215,18 @@ public class MainActivity extends Activity {
         btnRefresh.setOnClickListener(v -> doRefresh());
         btnViewLog.setOnClickListener(v -> showCtrlLogDialog());
         btnNfcCard.setOnClickListener(v -> startActivity(new Intent(this, NfcCardActivity.class)));
+        // v1.9.39：手环互联诊断——把服务未起来/节点不可见/权限未授予统一回报到日志区
+        btnWearDiag.setOnClickListener(v -> {
+            Intent i = new Intent(this, WearRelayService.class);
+            i.setAction(WearRelayService.ACTION_WEAR_DIAG);
+            try {
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+                else startService(i);
+                logMsg("已发起手环互联诊断，结果稍后显示在指令日志。");
+            } catch (Exception e) {
+                logMsg("发起诊断失败：" + e.getMessage());
+            }
+        });
         btnLogout.setOnClickListener(v -> {
             Prefs.clear(this);
             onCredentialChanged();
@@ -456,6 +481,14 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         refreshAccessibilityButton();
+        try {
+            registerReceiver(wearDiagReceiver, new IntentFilter(WearRelayService.ACTION_WEAR_DIAG));
+        } catch (Exception ignored) { }
+    }
+
+    @Override protected void onPause() {
+        try { unregisterReceiver(wearDiagReceiver); } catch (Exception ignored) { }
+        super.onPause();
     }
 
     /** v1.9.18：处理低电压警示 Intent，取完即清，避免旋转屏幕后重复弹窗。 */

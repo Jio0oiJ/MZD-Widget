@@ -73,6 +73,7 @@ public final class WearRelayService extends Service {
     /** 指令去重与节流的临界区：SDK 可能把消息派发到不同线程，check-then-set 必须原子 */
     private final Object cmdGuard = new Object();
     private long lastCmdAt = 0L; // 仅在 cmdGuard 内访问
+    private volatile long lastNodeFailLogAt = 0L; // v1.9.39：节点失败日志节流
     /** 近期 reqId 集合（有上限），替代单个 lastReqId，防更早的重投漏网 */
     private final java.util.ArrayDeque<String> recentReqIds = new java.util.ArrayDeque<>();
     private static final int MAX_RECENT_REQ = 32;
@@ -145,10 +146,16 @@ public final class WearRelayService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        // v1.9.39：诊断请求——服务若未起，先按 START 流程初始化；再回报三段状态
+        boolean isDiag = ACTION_WEAR_DIAG.equals(action);
         stopped = false;
         startAsForeground();
         main.removeCallbacks(retryLoop);
         main.post(retryLoop);
+        if (isDiag) {
+            // 立即回报，不延迟——延迟版本实测在 MIUI 下诊断结果不易捕捉
+            diagnoseAndReport();
+        }
         return START_STICKY;
     }
 
@@ -192,6 +199,73 @@ public final class WearRelayService extends Service {
         try { nm.createNotificationChannel(ch); } catch (Exception ignored) { }
     }
 
+    /**
+     * v1.9.39：手环互联诊断。供主界面「手环互联诊断」按钮调用，
+     * 把「节点是否可见 / 是否已授权 / 是否已监听」三段状态回传给 UI，
+     * 让用户能直接看到卡在哪一步，而不是只盯着手环的红点猜。
+     * 结果以广播发出，避免 UI 与 Service 直接绑定。
+     */
+    public static final String ACTION_WEAR_DIAG = "com.example.mzdwidget.WEAR_DIAG";
+    public static final String EXTRA_WEAR_DIAG_TEXT = "wear_diag_text";
+
+    public void diagnoseAndReport() {
+        final Context app = getApplicationContext();
+        if (!Prefs.wearEnabled(app)) {
+            broadcastDiag(app, "手环遥控开关未开启，请先在开关处打开。");
+            return;
+        }
+        if (nodeApi == null || messageApi == null) {
+            broadcastDiag(app, "互联 SDK 初始化失败：小米运动健康可能未安装或未更新。请安装/更新「小米运动健康」后重试。");
+            return;
+        }
+        try {
+            nodeApi.getConnectedNodes().addOnSuccessListener(nodes -> {
+                if (nodes == null || nodes.isEmpty()) {
+                    broadcastDiag(app, "未发现已连接的手环节点。\n"
+                            + "1) 确认小米运动健康里手环已连接（不是仅系统蓝牙配对）；\n"
+                            + "2) MIUI 设置 → 应用设置 → 应用管理 → MZD控车 → 自启动：开、关联启动：开；\n"
+                            + "3) 同样给「小米运动健康」开自启动 + 关联启动，省电策略设为无限制；\n"
+                            + "4) 改完彻底杀掉两个 App 重开，再点本诊断。");
+                    return;
+                }
+                final String id = nodes.get(0).id;
+                try {
+                    Wearable.getAuthApi(app).checkPermission(id, Permission.DEVICE_MANAGER)
+                            .addOnSuccessListener(granted -> {
+                                String s = "已发现手环节点（" + id + "），穿戴权限"
+                                        + (granted ? "已授予" : "未授予");
+                                if (listeningNodeId != null && listeningNodeId.equals(id)) {
+                                    s += "，消息监听已注册 → 通道正常。若手环仍红点，请重启手环快应用。";
+                                } else {
+                                    s += "，但消息监听未注册，正在补注册，请 10 秒后再诊断。";
+                                }
+                                broadcastDiag(app, s);
+                            })
+                            .addOnFailureListener(e -> broadcastDiag(app,
+                                    "查到手环节点但权限检查失败：" + e.getMessage()
+                                            + "。请确认两端同包名同签名。"));
+                } catch (Throwable t) {
+                    broadcastDiag(app, "权限检查异常：" + t.getMessage());
+                }
+            }).addOnFailureListener(e -> broadcastDiag(app,
+                    "查询穿戴节点失败：" + e.getMessage()
+                            + "。多半是 MIUI 关联启动/后台限制拦截，请按提示开启后重试。"));
+        } catch (Throwable t) {
+            broadcastDiag(app, "诊断异常：" + t.getMessage());
+        }
+    }
+
+    private void broadcastDiag(Context app, String text) {
+        try {
+            Intent i = new Intent(ACTION_WEAR_DIAG).setPackage(app.getPackageName());
+            i.putExtra(EXTRA_WEAR_DIAG_TEXT, text);
+            app.sendBroadcast(i);
+        } catch (Throwable t) {
+            Log.w(TAG, "诊断结果广播失败：" + t);
+        }
+        CtrlLog.i(TAG, "【手环诊断】" + text);
+    }
+
     /** 查询已连接穿戴节点 → 鉴权 → 注册消息监听（幂等） */
     private void refreshNode() {
         if (stopped || nodeApi == null || messageApi == null) return;
@@ -207,7 +281,15 @@ public final class WearRelayService extends Service {
             nodeIdRef.set(id);
             ensurePermission(id);
             ensureListen(id);
-        }).addOnFailureListener(e -> Log.w(TAG, "查询穿戴节点失败：" + e.getMessage()));
+        }).addOnFailureListener(e -> {
+            Log.w(TAG, "查询穿戴节点失败：" + e.getMessage());
+            // v1.9.39：节流落盘——同一原因 60 秒内只记一次，避免 10 秒轮询刷爆日志
+            long now = System.currentTimeMillis();
+            if (now - lastNodeFailLogAt > 60_000L) {
+                lastNodeFailLogAt = now;
+                CtrlLog.w(TAG, "【手环】查询穿戴节点失败（可能 MIUI 关联启动拦截）：" + e.getMessage());
+            }
+        });
     }
 
     private void ensurePermission(String id) {

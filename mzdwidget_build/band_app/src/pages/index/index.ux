@@ -58,6 +58,9 @@ var pressActive = false
 var pressFired = false
 var flashTimer = null
 var flashSeq = 0
+var diagTimer = null       // v1.3.2：周期性互联诊断定时器
+var diagFailStreak = 0     // 连续诊断失败次数，用于红点慢闪提示"通道不通"
+var blinkTimer = null      // v1.3.2：红点慢闪定时器
 
 function getConn() {
   if (conn) return conn
@@ -120,12 +123,18 @@ export default {
     dotGreen: false,
     dotYellow: false,
     flashing: false,
-    flashOn: false
+    flashOn: false,
+    redBlink: false   // v1.3.2：红点慢闪=通道不通（连续诊断失败）
   },
 
   onReady() {
     this.syncDot()
     this.initConn()
+    // v1.3.2：每 2 秒重试一次互联诊断。手机侧（MIUI 关联启动/服务）恢复后自动变绿，
+    // 无需退出重进快应用；连续失败时红点慢闪，区分"通道不通"与"确认未连接"。
+    var self = this
+    if (diagTimer !== null) clearInterval(diagTimer)
+    diagTimer = setInterval(function () { self.diagnose() }, 2000)
   },
 
   onShow() {
@@ -137,6 +146,14 @@ export default {
     if (flashTimer !== null) {
       clearTimeout(flashTimer)
       flashTimer = null
+    }
+    if (diagTimer !== null) {
+      clearInterval(diagTimer)
+      diagTimer = null
+    }
+    if (blinkTimer !== null) {
+      clearInterval(blinkTimer)
+      blinkTimer = null
     }
     flashSeq += 1
     if (!conn) return
@@ -152,15 +169,21 @@ export default {
     if (this.lastResult !== text) this.lastResult = text
   },
 
-  /** 按连接状态 + 闪烁标志刷新三个圆点，只置一个为 true */
+  /** 按连接状态 + 闪烁标志刷新三个圆点，只置一个为 true
+   *  v1.3.2：红点慢闪(redBlink)=连续诊断失败、通道不通；红点常亮=未连接但通道正常 */
   syncDot() {
     if (this.flashing) {
       this.dotRed = false
       this.dotGreen = false
       this.dotYellow = !!this.flashOn
+    } else if (this.connected) {
+      this.dotRed = false
+      this.dotGreen = true
+      this.dotYellow = false
     } else {
-      this.dotRed = !this.connected
-      this.dotGreen = !!this.connected
+      // redBlink=true 时红点由 blinkTimer 独立控制亮灭；false 时常亮
+      this.dotRed = !this.redBlink
+      this.dotGreen = false
       this.dotYellow = false
     }
   },
@@ -206,17 +229,13 @@ export default {
 
     try {
       c.onopen = function () {
-        self.connected = true
-        self.syncDot()
-        self.diagnose()
+        self.applyDiag(true)
       }
       c.onclose = function () {
-        self.connected = false
-        self.syncDot()
+        self.applyDiag(false)
       }
       c.onerror = function (e) {
-        self.connected = false
-        self.syncDot()
+        self.applyDiag(false)
       }
       c.onmessage = function (event) {
         var msg = null
@@ -235,6 +254,31 @@ export default {
     this.diagnose()
   },
 
+  /** v1.3.2：诊断后按结果调红点——连续失败≥2次则慢闪（通道不通提示），成功则恢复常态 */
+  applyDiag(ok) {
+    this.connected = !!ok
+    if (ok) {
+      diagFailStreak = 0
+      if (this.redBlink) {
+        this.redBlink = false
+        if (blinkTimer !== null) { clearInterval(blinkTimer); blinkTimer = null }
+      }
+      this.syncDot()
+      return
+    }
+    diagFailStreak += 1
+    if (diagFailStreak >= 2 && !this.redBlink) {
+      this.redBlink = true
+      var self = this
+      if (blinkTimer !== null) clearInterval(blinkTimer)
+      blinkTimer = setInterval(function () {
+        if (!self.redBlink || self.flashing || self.connected) return
+        self.dotRed = !self.dotRed
+      }, 500)
+    }
+    this.syncDot()
+  },
+
   diagnose() {
     var self = this
     if (!conn || typeof conn.diagnosis !== 'function') return
@@ -242,15 +286,15 @@ export default {
       conn.diagnosis({
         success: function (data) {
           var ok = data && Number(data.status) === 0
-          self.connected = !!ok
-          self.syncDot()
+          self.applyDiag(ok)
         },
         fail: function () {
-          self.connected = false
-          self.syncDot()
+          self.applyDiag(false)
         }
       })
-    } catch (e) { }
+    } catch (e) {
+      self.applyDiag(false)
+    }
   },
 
   onResult(msg) {
