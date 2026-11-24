@@ -58,11 +58,29 @@
             </intent-filter>
         </activity>
 
-        <!-- v1.9.27：NFC 刷卡切换锁车（读 UID，仅前台可见时可触发） -->
+        <!-- v1.9.27：NFC 刷卡切换锁车（读 UID，前台 ReaderMode 独占读卡） -->
         <activity
             android:name=".NfcCardActivity"
             android:exported="false"
             android:launchMode="singleTop" />
+
+        <!-- v1.9.48：后台/锁屏贴卡切换。透明无界面，系统静态注册唤起。
+             与前台 ReaderMode 互补：前台时 ReaderMode 独占，系统不会发 intent；
+             退到后台 ReaderMode 释放后，贴卡由此 Activity 接收并处理。 -->
+        <activity
+            android:name=".NfcBackgroundActivity"
+            android:exported="true"
+            android:theme="@style/NfcTransparent"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.nfc.action.TECH_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.action.TECH_DISCOVERED"
+                android:resource="@xml/nfc_tech_list" />
+        </activity>
 
         <receiver
             android:name=".CarWidget"
