@@ -215,17 +215,18 @@ public final class WearRelayService extends Service {
             return;
         }
         if (nodeApi == null || messageApi == null) {
-            broadcastDiag(app, "互联 SDK 初始化失败：小米运动健康可能未安装或未更新。请安装/更新「小米运动健康」后重试。");
+            broadcastDiag(app, "互联 SDK 初始化失败。请确认「Notify for Xiaomi」(com.mc.xiaomi1) 已安装、已打开并连着手环。");
             return;
         }
         try {
             nodeApi.getConnectedNodes().addOnSuccessListener(nodes -> {
                 if (nodes == null || nodes.isEmpty()) {
-                    broadcastDiag(app, "未发现已连接的手环节点。\n"
-                            + "1) 确认小米运动健康里手环已连接（不是仅系统蓝牙配对）；\n"
-                            + "2) MIUI 设置 → 应用设置 → 应用管理 → MZD控车 → 自启动：开、关联启动：开；\n"
-                            + "3) 同样给「小米运动健康」开自启动 + 关联启动，省电策略设为无限制；\n"
-                            + "4) 改完彻底杀掉两个 App 重开，再点本诊断。");
+                    broadcastDiag(app, "未发现手环节点：XMS 通道由「Notify for Xiaomi」桥接，不是小米运动健康。\n"
+                            + "1) 打开 Notify for Xiaomi，确认它已连接手环（非仅系统蓝牙配对）；\n"
+                            + "2) MIUI → 应用管理 → MZD控车 → 自启动开、关联启动开；\n"
+                            + "3) 同样给「Notify for Xiaomi」(com.mc.xiaomi1) 开自启动+关联启动、省电无限制；\n"
+                            + "4) 关键：把「小米运动健康」(com.mi.health) 强行停止并设为禁止后台——它和 Notify 同时连手环会抢通道；\n"
+                            + "5) 改完杀掉 MZD 与 Notify 重开，再点本诊断。");
                     return;
                 }
                 final String id = nodes.get(0).id;
@@ -248,8 +249,8 @@ public final class WearRelayService extends Service {
                     broadcastDiag(app, "权限检查异常：" + t.getMessage());
                 }
             }).addOnFailureListener(e -> broadcastDiag(app,
-                    "查询穿戴节点失败：" + e.getMessage()
-                            + "。多半是 MIUI 关联启动/后台限制拦截，请按提示开启后重试。"));
+                    "查询手环节点失败：" + e.getMessage()
+                            + "。多半是 MIUI 关联启动拦截了 MZD 绑定 Notify for Xiaomi 的互联服务(com.mc.xiaomi1)，请给 MZD 开关联启动后重试。"));
         } catch (Throwable t) {
             broadcastDiag(app, "诊断异常：" + t.getMessage());
         }
