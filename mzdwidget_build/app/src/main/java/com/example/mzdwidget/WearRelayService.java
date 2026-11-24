@@ -86,36 +86,6 @@ public final class WearRelayService extends Service {
         }
     };
 
-    /**
-     * v1.9.27：给手环发振动反馈（NFC 刷卡切换专用）。
-     * 解锁 1 下、上锁 2 下；手环端解析 msg.vibrate 决定次数。
-     * 不要求本服务正在运行，直接用 XMS SDK 找已连接穿戴节点；用户关掉手环遥控开关时不打扰。
-     */
-    public static void vibrateBand(Context c, final int times) {
-        final Context app = c == null ? null : c.getApplicationContext();
-        if (app == null || times <= 0 || !Prefs.wearEnabled(app)) return;
-        new Handler(Looper.getMainLooper()).post(() -> {
-            try {
-                JSONObject o = new JSONObject();
-                o.put("type", MSG_RESULT);
-                o.put("reqId", "nfc_vibrate");
-                o.put("action", "feedback");
-                o.put("ok", true);
-                o.put("vibrate", times);
-                o.put("msg", "刷卡反馈");
-                final byte[] bytes = o.toString().getBytes(StandardCharsets.UTF_8);
-                Wearable.getNodeApi(app).getConnectedNodes().addOnSuccessListener(nodes -> {
-                    if (nodes == null || nodes.isEmpty()) return;
-                    String id = nodes.get(0).id;
-                    Wearable.getMessageApi(app).sendMessage(id, bytes)
-                            .addOnFailureListener(e -> Log.w(TAG, "手环振动回传失败：" + e.getMessage()));
-                }).addOnFailureListener(e -> Log.w(TAG, "查询手环节点失败：" + e.getMessage()));
-            } catch (Throwable t) {
-                Log.w(TAG, "构造手环振动消息失败：" + t);
-            }
-        });
-    }
-
     @Override
     public void onCreate() {
         super.onCreate();

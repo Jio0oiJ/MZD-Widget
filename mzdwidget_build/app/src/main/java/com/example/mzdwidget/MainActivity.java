@@ -61,7 +61,7 @@ public class MainActivity extends Activity {
     private TextView tvStatus, tvBtDevice, tvBleDiag, tvTitleBrand, tvPreviewBrand, tvPreviewStatus;
     private EditText etBrandText, etBrandColor, etStatusNormalColor, etStatusAlertColor, etBtAway, etBtRssi, etBtLockRssi;
     private boolean updatingThresholdUi = false; // v1.9.23：阈值输入框互相刷新时防 TextWatcher 重入
-    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility, btnNfcCard, btnWearDiag;
+    private Button btnLogin, btnSaveToken, btnRefresh, btnLogout, btnRootImport, btnPickBt, btnSaveAppearance, btnViewLog, btnAccessibility, btnWearDiag;
 
     /** v1.9.39：接收 WearRelayService 的互联诊断结果并显示在日志区 */
     private final BroadcastReceiver wearDiagReceiver = new BroadcastReceiver() {
@@ -162,7 +162,6 @@ public class MainActivity extends Activity {
         cbWearEnable = findViewById(R.id.cb_wear_enable);
         btnPickBt = findViewById(R.id.btn_pick_bt);
         btnAccessibility = findViewById(R.id.btn_accessibility);
-        btnNfcCard = findViewById(R.id.btn_nfc_card);
         btnWearDiag = findViewById(R.id.btn_wear_diag);
         refreshAccessibilityButton();
         btnAccessibility.setOnClickListener(v -> {
@@ -214,7 +213,6 @@ public class MainActivity extends Activity {
         btnSaveToken.setOnClickListener(v -> doSaveToken());
         btnRefresh.setOnClickListener(v -> doRefresh());
         btnViewLog.setOnClickListener(v -> showCtrlLogDialog());
-        btnNfcCard.setOnClickListener(v -> startActivity(new Intent(this, NfcCardActivity.class)));
         // v1.9.39：手环互联诊断——把服务未起来/节点不可见/权限未授予统一回报到日志区
         btnWearDiag.setOnClickListener(v -> {
             Intent i = new Intent(this, WearRelayService.class);

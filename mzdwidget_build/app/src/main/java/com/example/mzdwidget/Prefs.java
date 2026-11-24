@@ -15,7 +15,6 @@ public final class Prefs {
     private static final String K_BT_NAME = "bt_name";       // 蓝牙触发设备名称（仅显示）
     private static final String K_BT_ENABLED = "bt_enabled"; // 蓝牙自动控车开关
     private static final String K_WEAR_ENABLED = "wear_enabled"; // v1.9.25 手环遥控开关（默认关）
-    private static final String K_NFC_UID = "nfc_card_uid"; // v1.9.27：已录入的目标 Mifare Classic 卡 UID（十六进制）
     private static final String K_BT_AWAY_SEC = "bt_away_sec"; // BLE 扫描：离开判定秒数
     private static final String K_BT_RSSI = "bt_rssi_threshold"; // BLE 解锁信号阈值（dBm，负整数）
     private static final String K_BT_LOCK_RSSI = "bt_lock_rssi_threshold"; // v1.9.22 BLE 上锁信号阈值（dBm，负整数，独立滞回）
@@ -119,12 +118,6 @@ public final class Prefs {
     }
     public static boolean wearEnabled(Context c) { return btPrefs(c).getBoolean(K_WEAR_ENABLED, false); }
 
-    /** v1.9.27：NFC 刷卡切换的目标卡 UID；空字符串表示尚未录入 */
-    public static String nfcCardUid(Context c) { return btPrefs(c).getString(K_NFC_UID, ""); }
-    public static void setNfcCardUid(Context c, String uid) {
-        // v1.9.46：录入后立即贴卡可能读到旧值，改同步落盘
-        btPrefs(c).edit().putString(K_NFC_UID, uid == null ? "" : uid.trim().toUpperCase()).commit();
-    }
     /** BLE 扫描：连续多少秒扫不到目标设备即判定离开，默认 30 秒 */
     public static int btAwaySec(Context c) { return btPrefs(c).getInt(K_BT_AWAY_SEC, 30); }
     public static void setBtAwaySec(Context c, int sec) {

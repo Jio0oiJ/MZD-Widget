@@ -20,9 +20,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- v1.9.24：熄屏时持部分唤醒锁保 BLE 扫描占空比，防 Doze 压低采样频率导致靠近/离开无动作 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- v1.9.27：手机端读 Mifare Classic 卡 UID（非卡模拟，不需要系统 NFC 权限） -->
-    <uses-permission android:name="android.permission.NFC" />
-    <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 20 秒快刷由系统精确闹钟驱动，App 进程被回收也能继续（API 31+）。
@@ -56,30 +53,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
-        <!-- v1.9.27：NFC 刷卡切换锁车（读 UID，前台 ReaderMode 独占读卡） -->
-        <activity
-            android:name=".NfcCardActivity"
-            android:exported="false"
-            android:launchMode="singleTop" />
-
-        <!-- v1.9.48：后台/锁屏贴卡切换。透明无界面，系统静态注册唤起。
-             与前台 ReaderMode 互补：前台时 ReaderMode 独占，系统不会发 intent；
-             退到后台 ReaderMode 释放后，贴卡由此 Activity 接收并处理。 -->
-        <activity
-            android:name=".NfcBackgroundActivity"
-            android:exported="true"
-            android:theme="@style/NfcTransparent"
-            android:excludeFromRecents="true"
-            android:launchMode="singleTask">
-            <intent-filter>
-                <action android:name="android.nfc.action.TECH_DISCOVERED" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <meta-data
-                android:name="android.nfc.action.TECH_DISCOVERED"
-                android:resource="@xml/nfc_tech_list" />
         </activity>
 
         <receiver
