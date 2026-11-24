@@ -1,20 +1,9 @@
 package com.example.mzdwidget;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
 import android.nfc.NfcAdapter;
 import android.nfc.Tag;
-import android.nfc.tech.IsoDep;
-import android.nfc.tech.MifareClassic;
-import android.nfc.tech.MifareUltralight;
-import android.nfc.tech.Ndef;
-import android.nfc.tech.NdefFormatable;
-import android.nfc.tech.NfcA;
-import android.nfc.tech.NfcB;
-import android.nfc.tech.NfcF;
-import android.nfc.tech.NfcV;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
@@ -25,7 +14,7 @@ import android.widget.Button;
 import android.widget.TextView;
 
 /**
- * v1.9.46：手机端 NFC 刷卡切换锁车。
+ * v1.9.47：手机端 NFC 刷卡切换锁车。
  *
  * 小米手环 9 Pro 的 Vela 快应用没有开放 NFC 读卡 API（手环 NFC 只做卡模拟），
  * 所以改为手机贴卡读取 UID。只做 UID 识别，不解密扇区、不复制卡片。
@@ -37,24 +26,19 @@ import android.widget.TextView;
  * - 解锁/上锁走 CarActions.send 统一入口，写 CtrlLog、登记提示音；
  * - 指令被服务器接受后，通过小米互联让手环振动：解锁 1 下、上锁 2 下。
  *
- * v1.9.46 修复「录入读不到卡」：
- * - 前台分发同时注册 NDEF/TECH/TAG 三种 action（原来只注册 TECH）；
- * - techList 覆盖 NfcA/B/F/V、IsoDep、Ndef、MifareClassic/Ultralight（原来只有 NfcA）；
- * - 页面保持屏幕常亮，避免贴卡前息屏导致前台分发失效（最常见原因）；
- * - 每次贴卡显示 UID + 卡片技术列表，并在日志里留痕，便于定位卡类型；
- * - 分发启用失败时把原因直接显示在页面上；
- * - 录入落盘改 commit()，贴卡震动反馈；增加「重新启用监听」按钮。
- *
- * 只在 Activity 前台启用 NFC 前台分发，不会全局抢 NFC，避免影响公交/门禁卡。
+ * v1.9.47 关键改动：从 enableForegroundDispatch（前台分发）改用
+ * enableReaderMode（读卡器模式）。前台分发依赖系统把 tag intent 派发给本页，
+ * 在 MIUI 上被系统钱包/读卡应用抢占，表现为「手机能识别贴卡但 App 完全无反应」。
+ * ReaderMode 会独占 NFC 控制器并直接回调 onTagDiscovered，系统应用抢不走。
+ * ReaderCallback 运行在后台线程，UI 更新统一 post 回主线程。
  */
 public final class NfcCardActivity extends Activity {
 
     private static final String TAG = "MZDNfc";
 
     private NfcAdapter adapter;
-    private PendingIntent pendingIntent;
-    private android.content.IntentFilter[] filters;
-    private String[][] techLists;
+    private boolean readerEnabled = false;
+    private String readerError = "";
 
     private TextView tvUid;
     private TextView tvStatus;
@@ -66,14 +50,23 @@ public final class NfcCardActivity extends Activity {
     /** true=录入模式，false=刷卡切换模式（默认） */
     private volatile boolean enrollMode = false;
     private volatile boolean busy = false;
-    private String dispatchError = "";
+
+    /** ReaderMode 回调在后台线程，这里收到的 tag 只用其 UID/tech，UI 处理 post 回主线程 */
+    private final NfcAdapter.ReaderCallback readerCallback = tag -> {
+        if (tag == null) return;
+        String techs = describeTechs(tag);
+        byte[] id = tag.getId();
+        final String uid = (id == null || id.length == 0) ? "" : hex(id);
+        final String finalTechs = techs;
+        Log.i(TAG, "ReaderMode 读卡 uid=" + uid + " techs=" + techs);
+        runOnUiThread(() -> onTagRead(uid, finalTechs));
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_nfc_card);
-        // 关键：NFC 前台分发要求屏幕点亮且已解锁。不常亮时用户点完录入按钮，
-        // 还没把卡贴上来屏幕就熄了，分发随之失效，表现为「完全读不到」。
+        // NFC 前台读卡要求屏幕点亮，避免贴卡前息屏导致读卡失效
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         tvUid = findViewById(R.id.tv_nfc_uid);
@@ -84,35 +77,20 @@ public final class NfcCardActivity extends Activity {
         btnRetry = findViewById(R.id.btn_nfc_retry);
 
         adapter = NfcAdapter.getDefaultAdapter(this);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
-        pendingIntent = PendingIntent.getActivity(this, 0,
-                new Intent(this, NfcCardActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                flags);
-        filters = buildFilters();
-        // 覆盖常见卡：Mifare Classic/Ultralight/NTAG=NfcA；CPU 卡=IsoDep；
-        // 公交卡可能是 NfcB/NfcF/NfcV；部分卡带 Ndef。
-        techLists = new String[][] { new String[] {
-                NfcA.class.getName(), NfcB.class.getName(), NfcF.class.getName(),
-                NfcV.class.getName(), IsoDep.class.getName(), Ndef.class.getName(),
-                NdefFormatable.class.getName(), MifareClassic.class.getName(),
-                MifareUltralight.class.getName()
-        } };
 
         btnEnroll.setOnClickListener(v -> {
             enrollMode = true;
             setStatus("录入模式：请把目标卡贴近手机背面 NFC 感应区（保持亮屏）", false);
-            refreshNfcState();
         });
         btnSwitchMode.setOnClickListener(v -> {
             enrollMode = false;
             setStatus("刷卡模式：请把已录入的卡贴近手机背面（保持亮屏）", false);
-            refreshNfcState();
         });
         btnRetry.setOnClickListener(v -> {
-            enableDispatch();
+            disableReader();
+            enableReader();
             refreshNfcState();
-            setStatus("已重新启用 NFC 监听，请再贴一次卡", false);
+            setStatus("已重新启用 NFC 读卡，请再贴一次卡", false);
         });
 
         refreshUid();
@@ -122,69 +100,59 @@ public final class NfcCardActivity extends Activity {
         } else {
             setStatus("请把卡片贴近手机背面 NFC 感应区；录入请先点「录入当前卡片」", false);
         }
-        handleIntent(getIntent());
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        enableDispatch();
+        enableReader();
         refreshNfcState();
     }
 
     @Override
     protected void onPause() {
-        if (adapter != null) {
-            try { adapter.disableForegroundDispatch(this); } catch (Throwable ignored) { }
-        }
+        disableReader();
         super.onPause();
     }
 
-    private void enableDispatch() {
+    /** 独占式读卡器模式：系统钱包/公交卡应用无法抢占，直接回调 ReaderCallback */
+    private void enableReader() {
         if (adapter == null || !adapter.isEnabled()) return;
         try {
-            adapter.enableForegroundDispatch(this, pendingIntent, filters, techLists);
-            dispatchError = "";
-            Log.i(TAG, "NFC 前台分发已启用");
+            int flags = NfcAdapter.FLAG_READER_NFC_A
+                    | NfcAdapter.FLAG_READER_NFC_B
+                    | NfcAdapter.FLAG_READER_NFC_F
+                    | NfcAdapter.FLAG_READER_NFC_V
+                    | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK
+                    | NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS;
+            adapter.enableReaderMode(this, readerCallback, flags, null);
+            readerEnabled = true;
+            readerError = "";
+            Log.i(TAG, "NFC ReaderMode 已启用 flags=" + flags);
         } catch (Throwable t) {
-            dispatchError = shortErr(t);
-            Log.w(TAG, "启用 NFC 前台分发失败：" + t);
+            readerEnabled = false;
+            readerError = shortErr(t);
+            Log.w(TAG, "启用 NFC ReaderMode 失败：" + t);
         }
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        handleIntent(intent);
+    private void disableReader() {
+        if (adapter != null && readerEnabled) {
+            try { adapter.disableReaderMode(this); } catch (Throwable ignored) { }
+            readerEnabled = false;
+        }
     }
 
-    private void handleIntent(Intent intent) {
-        if (intent == null) return;
-        String action = intent.getAction();
-        Log.d(TAG, "handleIntent action=" + action);
-        if (action == null
-                || !(NfcAdapter.ACTION_NDEF_DISCOVERED.equals(action)
-                || NfcAdapter.ACTION_TECH_DISCOVERED.equals(action)
-                || NfcAdapter.ACTION_TAG_DISCOVERED.equals(action))) return;
-
-        Tag tag = intent.getParcelableExtra(NfcAdapter.EXTRA_TAG);
-        if (tag == null) {
-            setStatus("读到了 NFC 事件但拿不到卡片对象，请换个位置重贴", true);
-            return;
-        }
-        String techs = describeTechs(tag);
-        byte[] id = tag.getId();
-        if (id == null || id.length == 0) {
+    /** 主线程：处理一次读卡结果 */
+    private void onTagRead(String uid, String techs) {
+        if (uid == null || uid.isEmpty()) {
             setStatus("卡片没有可读 UID（" + techs + "），忽略", true);
-            Log.w(TAG, "卡片无 UID techs=" + techs);
             return;
         }
-        String uid = hex(id);
         // 每次贴卡都可见：即使模式不对，用户也能确认「卡已经被读到」
         tvUid.setText("目标卡：" + safeUid(Prefs.nfcCardUid(getApplicationContext()))
                 + "\n刚读到：" + uid + "（" + techs + "）");
-        Log.i(TAG, "读卡 uid=" + uid + " techs=" + techs + " action=" + action + " enroll=" + enrollMode);
+        Log.i(TAG, "读卡 uid=" + uid + " techs=" + techs + " enroll=" + enrollMode);
         buzz(60);
 
         if (enrollMode) {
@@ -271,10 +239,12 @@ public final class NfcCardActivity extends Activity {
             tvNfcState.setText("NFC 状态：本机不支持 NFC");
         } else if (!adapter.isEnabled()) {
             tvNfcState.setText("NFC 状态：未开启（系统设置 > 连接 > NFC）");
-        } else if (dispatchError.isEmpty()) {
-            tvNfcState.setText("NFC 状态：已开启，监听正常（保持亮屏）");
+        } else if (!readerError.isEmpty()) {
+            tvNfcState.setText("NFC 状态：读卡器启动失败 — " + readerError);
+        } else if (readerEnabled) {
+            tvNfcState.setText("NFC 状态：读卡器模式已启动（独占，系统应用抢不走）");
         } else {
-            tvNfcState.setText("NFC 状态：监听失败 — " + dispatchError);
+            tvNfcState.setText("NFC 状态：已开启，读卡器未启动（请点重新启用）");
         }
     }
 
@@ -300,28 +270,14 @@ public final class NfcCardActivity extends Activity {
         return (uid == null || uid.isEmpty()) ? "尚未录入" : uid;
     }
 
-    private static String describeTechs(Tag tag) {
-        String[] list = tag.getTechList();
+    private static String describeTechs(Tag techTag) {
+        String[] list = techTag.getTechList();
         StringBuilder sb = new StringBuilder();
         for (String s : list) {
             if (sb.length() > 0) sb.append('/');
             sb.append(s.substring(s.lastIndexOf('.') + 1));
         }
         return sb.length() == 0 ? "未知技术" : sb.toString();
-    }
-
-    private static android.content.IntentFilter[] buildFilters() {
-        android.content.IntentFilter ndef =
-                new android.content.IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED);
-        try { ndef.addDataType("*/*"); } catch (Throwable ignored) { }
-        ndef.addCategory(Intent.CATEGORY_DEFAULT);
-        android.content.IntentFilter tech =
-                new android.content.IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED);
-        tech.addCategory(Intent.CATEGORY_DEFAULT);
-        android.content.IntentFilter tag =
-                new android.content.IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED);
-        tag.addCategory(Intent.CATEGORY_DEFAULT);
-        return new android.content.IntentFilter[] { ndef, tech, tag };
     }
 
     private static String hex(byte[] id) {
