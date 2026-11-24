@@ -1,15 +1,17 @@
 {
   "package": "com.example.mzdwidget",
   "name": "MZD控车",
-  "versionName": "1.3.2",
-  "versionCode": 15,
+  "versionName": "1.3.3",
+  "versionCode": 16,
   "minPlatformVersion": 1030,
   "icon": "/common/logo.png",
   "deviceTypeList": ["watch"],
   "features": [
     { "name": "system.interconnect" },
     { "name": "system.vibrator" },
-    { "name": "system.prompt" }
+    { "name": "system.prompt" },
+    { "name": "system.router" },
+    { "name": "system.app" }
   ],
   "config": {
     "logLevel": "log",
