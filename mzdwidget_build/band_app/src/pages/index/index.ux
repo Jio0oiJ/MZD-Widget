@@ -43,7 +43,7 @@
 
 <script>
 /**
- * v1.3.6：新增 6 秒无触摸自动退出到表盘（防暗屏点亮后误触）。
+ * v1.3.7：新增 6 秒无触摸自动退出到表盘（防暗屏点亮后误触）。
  * v1.3.0 / 手机端 v1.9.37：
  * - 布局整体回到 v1.2.3（百分比宽度按钮 + 按钮组纵向铺满，用户确认大小位置 OK）；
  * - 倒计时改为三个固定数字节点 + show 切换，容器 absolute 满屏 + 盒内居中。
@@ -62,8 +62,8 @@ var flashSeq = 0
 var diagTimer = null       // v1.3.2：周期性互联诊断定时器
 var diagFailStreak = 0     // 连续诊断失败次数，用于红点慢闪提示"通道不通"
 var blinkTimer = null      // v1.3.2：红点慢闪定时器
-var idleTimer = null       // v1.3.6：闲置退出计时器
-var IDLE_MS = 6000         // v1.3.6：6 秒无触摸自动回表盘
+var idleTimer = null       // v1.3.7：闲置退出计时器
+var IDLE_MS = 6000         // v1.3.7：6 秒无触摸自动回表盘
 
 function getConn() {
   if (conn) return conn
@@ -178,12 +178,12 @@ export default {
     if (this.lastResult !== text) this.lastResult = text
   },
 
-  /** v1.3.6：任意触摸都重置闲置计时（根 page 的 ontouchstart 接收冒泡） */
+  /** v1.3.7：任意触摸都重置闲置计时（根 page 的 ontouchstart 接收冒泡） */
   onAnyTouch() {
     this.resetIdle()
   },
 
-  /** v1.3.6：6 秒无触摸自动退出到表盘，防止暗屏点亮后停留在控制页误触 */
+  /** v1.3.7：6 秒无触摸自动退出到表盘，防止暗屏点亮后停留在控制页误触 */
   resetIdle() {
     if (idleTimer !== null) clearTimeout(idleTimer)
     var self = this
@@ -193,7 +193,7 @@ export default {
     }, IDLE_MS)
   },
 
-  /** v1.3.6：退出快应用回表盘。
+  /** v1.3.7：退出快应用回表盘。
    *  router.back() 是 Vela 手环上实机验证过的返回桌面方式（需在 manifest 声明 system.router），
    *  放在首位；app.terminate 等在部分引擎可用，作为兜底。 */
   exitToDesktop() {
