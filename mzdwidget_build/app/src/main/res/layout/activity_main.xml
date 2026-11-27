@@ -5,397 +5,572 @@
     android:orientation="vertical"
     android:background="#F4F6F8">
 
-    <ScrollView
+    <ScrollView android:id="@+id/main_scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="#F4F6F8">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <!-- 顶部标题卡片：白色磨砂 -->
-        <FrameLayout
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="150dp"
-            android:layout_margin="12dp"
-            android:background="@drawable/title_card">
+            android:orientation="vertical">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
+            <!-- ==================== 首页 ==================== -->
+            <LinearLayout android:id="@+id/page_home"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/tv_title_brand"
+                <!-- 顶部标题卡片：白色磨砂 -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="150dp"
+                    android:layout_margin="12dp"
+                    android:background="@drawable/title_card">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
+
+                        <TextView
+                            android:id="@+id/tv_title_brand"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="MAZDA · 昂克赛拉" android:textColor="#8A1A2B"
+                            android:textSize="14sp" android:textStyle="bold"
+                            android:maxLines="1" android:ellipsize="end" />
+                        <TextView
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="控车小组件" android:textColor="#212121"
+                            android:textSize="26sp" android:textStyle="bold"
+                            android:layout_marginTop="4dp" />
+                        <TextView
+                            android:id="@+id/tv_status"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="未登录" android:textColor="#607080"
+                            android:textSize="13sp" android:layout_marginTop="12dp" />
+                        <TextView
+                            android:id="@+id/tv_version"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:layout_gravity="end"
+                            android:text="" android:textColor="#9AA3AE"
+                            android:textSize="11sp" android:layout_marginTop="2dp" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <Button android:id="@+id/btn_refresh"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="MAZDA · 昂克赛拉" android:textColor="#8A1A2B"
-                    android:textSize="14sp" android:textStyle="bold"
-                    android:maxLines="1" android:ellipsize="end" />
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp"
+                    android:text="刷新车辆状态" android:textSize="15sp"
+                    android:backgroundTint="#8A1A2B" android:textColor="#FFFFFF" />
+
                 <TextView
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="控车小组件" android:textColor="#212121"
-                    android:textSize="26sp" android:textStyle="bold"
-                    android:layout_marginTop="4dp" />
+                    android:text="设置" android:textStyle="bold"
+                    android:textColor="#8A1A2B" android:textSize="17sp"
+                    android:layout_marginTop="24dp" android:layout_marginLeft="18dp" />
                 <TextView
-                    android:id="@+id/tv_status"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="未登录" android:textColor="#607080"
-                    android:textSize="13sp" android:layout_marginTop="12dp" />
-                <TextView
-                    android:id="@+id/tv_version"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:layout_gravity="end"
-                    android:text="" android:textColor="#9AA3AE"
-                    android:textSize="11sp" android:layout_marginTop="2dp" />
+                    android:text="按类别查找，点击进入" android:textColor="#9AA3AE" android:textSize="12sp"
+                    android:layout_marginTop="2dp" android:layout_marginLeft="18dp" />
+
+                <!-- 分类入口：桌面组件外观 -->
+                <LinearLayout android:id="@+id/btn_go_appearance"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="10dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="桌面组件外观" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="品牌文字、文字颜色、车况配色" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- 分类入口：账号与凭证 -->
+                <LinearLayout android:id="@+id/btn_go_account"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="8dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="账号与凭证" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Root 读取、账号登录、Token、退出登录" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- 分类入口：BLE 自动控车 -->
+                <LinearLayout android:id="@+id/btn_go_ble"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="8dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="BLE 自动控车" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="扫描设备、解锁/上锁阈值、信号诊断" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- 分类入口：手环遥控 -->
+                <LinearLayout android:id="@+id/btn_go_wear"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="8dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="手环遥控" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="开关、互联诊断（红点排查）" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- 分类入口：提示音 -->
+                <LinearLayout android:id="@+id/btn_go_sound"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="8dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="提示音" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="解锁/上锁音效、总开关、试听" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
+
+                <!-- 分类入口：保活与日志 -->
+                <LinearLayout android:id="@+id/btn_go_advanced"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:clickable="true"
+                    android:background="@drawable/title_card"
+                    android:padding="16dp" android:layout_marginTop="8dp"
+                    android:layout_marginLeft="12dp" android:layout_marginRight="12dp"
+                    android:layout_marginBottom="20dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="保活与日志" android:textColor="#212121"
+                            android:textSize="15sp" android:textStyle="bold" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="无障碍保活、查看指令日志" android:textColor="#888888" android:textSize="12sp"
+                            android:layout_marginTop="4dp" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="›" android:textColor="#9AA3AE" android:textSize="24sp" />
+                </LinearLayout>
             </LinearLayout>
-        </FrameLayout>
 
-        <!-- 桌面组件外观设置：品牌文字/颜色、车况文字颜色 -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_margin="12dp"
-            android:background="@drawable/title_card">
+            <!-- ==================== 二级页面返回栏 ==================== -->
+            <LinearLayout android:id="@+id/nav_bar"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:visibility="gone"
+                android:background="#FFFFFF" android:padding="12dp"
+                android:layout_marginBottom="10dp">
+                <Button android:id="@+id/btn_nav_back"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="‹ 返回" android:textSize="14sp"
+                    android:backgroundTint="#E8EBEF" android:textColor="#37474F"
+                    android:minWidth="70dp" />
+                <TextView android:id="@+id/tv_nav_title"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="" android:textColor="#212121" android:textSize="17sp"
+                    android:textStyle="bold" android:gravity="center"
+                    android:layout_marginRight="70dp" android:layout_gravity="center_vertical" />
+            </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
+            <!-- ==================== 二级页：桌面组件外观 ==================== -->
+            <FrameLayout android:id="@+id/page_appearance"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:layout_margin="12dp" android:background="@drawable/title_card">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="18dp">
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="桌面组件外观设置" android:textStyle="bold"
+                        android:textColor="#8A1A2B" android:textSize="16sp" />
+                    <TextView
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="自定义第一行品牌文字与颜色、车况文字颜色；保存后桌面组件即时生效。"
+                        android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
+
+                    <!-- 预览 -->
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:padding="14dp"
+                        android:background="@drawable/widget_frosted"
+                        android:layout_marginTop="12dp">
+                        <TextView android:id="@+id/tv_preview_brand"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="MAZDA 昂克赛拉" android:textColor="#8A1A2B"
+                            android:textSize="16sp" android:textStyle="bold"
+                            android:shadowColor="#FFFFFFFF" android:shadowRadius="4" />
+                        <TextView android:id="@+id/tv_preview_status"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="未启动  车门已锁" android:textColor="#212121"
+                            android:textSize="16.8sp" android:textStyle="bold"
+                            android:layout_marginTop="4dp"
+                            android:shadowColor="#FFFFFFFF" android:shadowRadius="5" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="第一行品牌文字" android:textColor="#555555"
+                        android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="16dp" />
+                    <EditText android:id="@+id/et_brand_text"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:hint="例如：MAZDA 昂克赛拉" android:inputType="text"
+                        android:padding="10dp" android:background="@drawable/btn_round_light"
+                        android:textSize="14sp" android:layout_marginTop="6dp"
+                        android:maxLines="1" android:ellipsize="end" />
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="品牌文字颜色（点色块或输入 #RRGGBB）" android:textColor="#555555"
+                        android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
+                    <LinearLayout android:id="@+id/row_brand_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:layout_marginTop="6dp" />
+                    <EditText android:id="@+id/et_brand_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:hint="#8A1A2B" android:inputType="text"
+                        android:padding="10dp" android:background="@drawable/btn_round_light"
+                        android:textSize="14sp" android:layout_marginTop="6dp"
+                        android:maxLines="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="车况颜色 · 未启动且已锁（常态）" android:textColor="#555555"
+                        android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
+                    <LinearLayout android:id="@+id/row_status_normal_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:layout_marginTop="6dp" />
+                    <EditText android:id="@+id/et_status_normal_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:hint="#212121" android:inputType="text"
+                        android:padding="10dp" android:background="@drawable/btn_round_light"
+                        android:textSize="14sp" android:layout_marginTop="6dp"
+                        android:maxLines="1" />
+
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="车况颜色 · 已启动或车门未锁（警示）" android:textColor="#555555"
+                        android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
+                    <LinearLayout android:id="@+id/row_status_alert_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:layout_marginTop="6dp" />
+                    <EditText android:id="@+id/et_status_alert_color"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:hint="#C41230" android:inputType="text"
+                        android:padding="10dp" android:background="@drawable/btn_round_light"
+                        android:textSize="14sp" android:layout_marginTop="6dp"
+                        android:maxLines="1" />
+
+                    <Button android:id="@+id/btn_save_appearance"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="保存外观并应用到桌面" android:textSize="15sp"
+                        android:layout_marginTop="16dp"
+                        android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+                </LinearLayout>
+            </FrameLayout>
+
+            <!-- ==================== 二级页：账号与凭证 ==================== -->
+            <LinearLayout android:id="@+id/page_account"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone"
                 android:padding="18dp">
 
                 <TextView
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="桌面组件外观设置" android:textStyle="bold"
-                    android:textColor="#8A1A2B" android:textSize="16sp" />
+                    android:text="方式一 · 已 Root？一键读取官方 App 凭证（推荐）"
+                    android:textStyle="bold" android:textColor="#8A1A2B" android:textSize="15sp" />
                 <TextView
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="自定义第一行品牌文字与颜色、车况文字颜色；保存后桌面组件即时生效。"
+                    android:text="点下方按钮授权 Root，直接从官方控车 App 读取 token 和 carid，无需手填。"
                     android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
-
-                <!-- 预览 -->
-                <LinearLayout
+                <Button android:id="@+id/btn_root_import"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:padding="14dp"
-                    android:background="@drawable/widget_frosted"
-                    android:layout_marginTop="12dp">
-                    <TextView android:id="@+id/tv_preview_brand"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="MAZDA 昂克赛拉" android:textColor="#8A1A2B"
-                        android:textSize="16sp" android:textStyle="bold"
-                        android:shadowColor="#FFFFFFFF" android:shadowRadius="4" />
-                    <TextView android:id="@+id/tv_preview_status"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="未启动  车门已锁" android:textColor="#212121"
-                        android:textSize="16.8sp" android:textStyle="bold"
-                        android:layout_marginTop="4dp"
-                        android:shadowColor="#FFFFFFFF" android:shadowRadius="5" />
-                </LinearLayout>
-
-                <!-- 第一行品牌文字 -->
-                <TextView
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="第一行品牌文字" android:textColor="#555555"
-                    android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="16dp" />
-                <EditText android:id="@+id/et_brand_text"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:hint="例如：MAZDA 昂克赛拉" android:inputType="text"
-                    android:padding="10dp" android:background="@drawable/btn_round_light"
-                    android:textSize="14sp" android:layout_marginTop="6dp"
-                    android:maxLines="1" android:ellipsize="end" />
-
-                <!-- 第一行品牌颜色 -->
-                <TextView
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="品牌文字颜色（点色块或输入 #RRGGBB）" android:textColor="#555555"
-                    android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
-                <LinearLayout android:id="@+id/row_brand_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginTop="6dp" />
-                <EditText android:id="@+id/et_brand_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:hint="#8A1A2B" android:inputType="text"
-                    android:padding="10dp" android:background="@drawable/btn_round_light"
-                    android:textSize="14sp" android:layout_marginTop="6dp"
-                    android:maxLines="1" />
-
-                <!-- 车况：常态颜色 -->
-                <TextView
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="车况颜色 · 未启动且已锁（常态）" android:textColor="#555555"
-                    android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
-                <LinearLayout android:id="@+id/row_status_normal_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginTop="6dp" />
-                <EditText android:id="@+id/et_status_normal_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:hint="#212121" android:inputType="text"
-                    android:padding="10dp" android:background="@drawable/btn_round_light"
-                    android:textSize="14sp" android:layout_marginTop="6dp"
-                    android:maxLines="1" />
-
-                <!-- 车况：警示颜色 -->
-                <TextView
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="车况颜色 · 已启动或车门未锁（警示）" android:textColor="#555555"
-                    android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
-                <LinearLayout android:id="@+id/row_status_alert_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginTop="6dp" />
-                <EditText android:id="@+id/et_status_alert_color"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:hint="#C41230" android:inputType="text"
-                    android:padding="10dp" android:background="@drawable/btn_round_light"
-                    android:textSize="14sp" android:layout_marginTop="6dp"
-                    android:maxLines="1" />
-
-                <Button android:id="@+id/btn_save_appearance"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="保存外观并应用到桌面" android:textSize="15sp"
-                    android:layout_marginTop="16dp"
+                    android:text="Root 一键读取凭证" android:textSize="16sp" android:layout_marginTop="12dp"
                     android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="方式二 · 账号密码登录" android:textStyle="bold"
+                    android:textColor="#8A1A2B" android:textSize="15sp" />
+                <EditText android:id="@+id/et_phone"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="手机号" android:inputType="phone" android:padding="12dp"
+                    android:background="@drawable/btn_round_light" android:textSize="15sp"
+                    android:layout_marginTop="10dp" />
+                <EditText android:id="@+id/et_pass"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="控车 App 登录密码" android:inputType="textPassword" android:padding="12dp"
+                    android:background="@drawable/btn_round_light" android:textSize="15sp"
+                    android:layout_marginTop="8dp" />
+                <Button android:id="@+id/btn_login"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="登录" android:textSize="16sp" android:layout_marginTop="12dp"
+                    android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="方式三 · 手动填入 Token" android:textStyle="bold"
+                    android:textColor="#8A1A2B" android:textSize="15sp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="未 Root 时，从原 App 提取 token 和 carid 后粘贴到下方（提取方法见说明文档）"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
+                <EditText android:id="@+id/et_token"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="token（smart_car_token）" android:inputType="textPassword" android:padding="12dp"
+                    android:background="@drawable/btn_round_light" android:textSize="14sp"
+                    android:layout_marginTop="10dp" />
+                <EditText android:id="@+id/et_carid"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="carid（car_id）" android:inputType="text" android:padding="12dp"
+                    android:background="@drawable/btn_round_light" android:textSize="14sp"
+                    android:layout_marginTop="8dp" />
+                <Button android:id="@+id/btn_save_token"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="保存 Token" android:textSize="16sp" android:layout_marginTop="12dp"
+                    android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+
+                <Button android:id="@+id/btn_logout"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="退出登录 / 清除凭证" android:textSize="14sp"
+                    android:backgroundTint="#777777" android:textColor="#FFFFFF" />
+
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="凭证仅保存在本机，不会上传。请仅在自己的账号与车辆上使用。"
+                    android:textColor="#999999" android:textSize="12sp" android:paddingTop="18dp" />
             </LinearLayout>
-        </FrameLayout>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="18dp">
+            <!-- ==================== 二级页：BLE 自动控车 ==================== -->
+            <LinearLayout android:id="@+id/page_ble"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone"
+                android:padding="18dp">
 
-            <!-- 方式三：Root 一键读取（推荐给已 Root 用户） -->
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="方式一 · 已 Root？一键读取官方 App 凭证（推荐）"
-                android:textStyle="bold" android:textColor="#8A1A2B" android:textSize="15sp" />
-            <TextView
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="点下方按钮授权 Root，直接从官方控车 App 读取 token 和 carid，无需手填。"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
-            <Button android:id="@+id/btn_root_import"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="Root 一键读取凭证" android:textSize="16sp" android:layout_marginTop="12dp"
-                android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="BLE 扫描自动控车（无需连接）" android:textStyle="bold"
+                    android:textColor="#8A1A2B" android:textSize="15sp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="后台只扫已选设备：有信号时每 0.3 秒采样，取 10 个点求均值去抖，再看均值整体是变强还是变弱——达标且不再走低才解锁，低于阈值且持续走低才上锁。单帧抖动不算数。停扫、熄屏或掉线导致信号断崖式消失没有渐变过程，判为异常、不触发锁车。连 WiFi 时自动停扫省电，断开后恢复。无需配对或连接。"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
+                <Button android:id="@+id/btn_pick_bt"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="扫描并选择附近的 BLE 设备" android:textSize="14sp" android:layout_marginTop="10dp"
+                    android:backgroundTint="#2E7D6B" android:textColor="#FFFFFF" />
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+                <TextView android:id="@+id/tv_bt_device"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="当前设备：未选择" android:textColor="#607080"
+                    android:textSize="12.5sp" android:layout_marginTop="8dp" />
 
-            <!-- 方式二：账号密码登录 -->
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="方式二 · 账号密码登录" android:textStyle="bold"
-                android:textColor="#8A1A2B" android:textSize="15sp" />
-            <EditText android:id="@+id/et_phone"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="手机号" android:inputType="phone" android:padding="12dp"
-                android:background="@drawable/btn_round_light" android:textSize="15sp"
-                android:layout_marginTop="10dp" />
-            <EditText android:id="@+id/et_pass"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="控车 App 登录密码" android:inputType="textPassword" android:padding="12dp"
-                android:background="@drawable/btn_round_light" android:textSize="15sp"
-                android:layout_marginTop="8dp" />
-            <Button android:id="@+id/btn_login"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="登录" android:textSize="16sp" android:layout_marginTop="12dp"
-                android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+                <TextView android:id="@+id/tv_ble_diag"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="" android:textColor="#888888"
+                    android:textSize="11.5sp" android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="2dp" />
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="离开判定时间（已改为去抖趋势判定，此项不再生效）" android:textColor="#555555"
+                    android:textSize="13sp" android:layout_marginTop="10dp" />
+                <EditText android:id="@+id/et_bt_away"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:enabled="false" android:hint="30" android:inputType="number"
+                    android:padding="10dp" android:background="@drawable/btn_round_light"
+                    android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
 
-            <!-- 方式三：手动填 Token -->
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="方式三 · 手动填入 Token" android:textStyle="bold"
-                android:textColor="#8A1A2B" android:textSize="15sp" />
-            <TextView
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="未 Root 时，从原 App 提取 token 和 carid 后粘贴到下方（提取方法见说明文档）"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
-            <EditText android:id="@+id/et_token"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="token（smart_car_token）" android:inputType="textPassword" android:padding="12dp"
-                android:background="@drawable/btn_round_light" android:textSize="14sp"
-                android:layout_marginTop="10dp" />
-            <EditText android:id="@+id/et_carid"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="carid（car_id）" android:inputType="text" android:padding="12dp"
-                android:background="@drawable/btn_round_light" android:textSize="14sp"
-                android:layout_marginTop="8dp" />
-            <Button android:id="@+id/btn_save_token"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="保存 Token" android:textSize="16sp" android:layout_marginTop="12dp"
-                android:backgroundTint="#C41230" android:textColor="#FFFFFF" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="解锁信号阈值（dBm，-100~ -30，默认 -70；越接近0越近）" android:textColor="#555555"
+                    android:textSize="13sp" android:layout_marginTop="10dp" />
+                <EditText android:id="@+id/et_bt_rssi"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="-70" android:inputType="numberSigned"
+                    android:padding="10dp" android:background="@drawable/btn_round_light"
+                    android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="上锁信号阈值（dBm，默认 -78；建议低于解锁阈值形成滞回，防临界抖动）" android:textColor="#555555"
+                    android:textSize="13sp" android:layout_marginTop="10dp" />
+                <EditText android:id="@+id/et_bt_lock_rssi"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="-78" android:inputType="numberSigned"
+                    android:padding="10dp" android:background="@drawable/btn_round_light"
+                    android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
 
-            <!-- BLE 扫描自动控车设置 -->
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="BLE 扫描自动控车（无需连接）" android:textStyle="bold"
-                android:textColor="#8A1A2B" android:textSize="15sp" />
-            <TextView
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="后台只扫已选设备：有信号时每 0.3 秒采样，取 10 个点求均值去抖，再看均值整体是变强还是变弱——达标且不再走低才解锁，低于阈值且持续走低才上锁。单帧抖动不算数。停扫、熄屏或掉线导致信号断崖式消失没有渐变过程，判为异常、不触发锁车。连 WiFi 时自动停扫省电，断开后恢复。无需配对或连接。"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="6dp" />
-            <Button android:id="@+id/btn_pick_bt"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="扫描并选择附近的 BLE 设备" android:textSize="14sp" android:layout_marginTop="10dp"
-                android:backgroundTint="#2E7D6B" android:textColor="#FFFFFF" />
+                <CheckBox android:id="@+id/cb_bt_enable"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="启用 BLE 扫描自动控车" android:textSize="14sp"
+                    android:layout_marginTop="8dp" />
 
-            <TextView android:id="@+id/tv_bt_device"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="当前设备：未选择" android:textColor="#607080"
-                android:textSize="12.5sp" android:layout_marginTop="8dp" />
-
-            <!-- BLE 扫描诊断（长按清空）。实机排查靠近不解锁/离开不锁时看这里 -->
-            <TextView android:id="@+id/tv_ble_diag"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="" android:textColor="#888888"
-                android:textSize="11.5sp" android:layout_marginTop="6dp"
-                android:lineSpacingExtra="2dp" />
-
-            <TextView
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="离开判定时间（已改为去抖趋势判定，此项不再生效）" android:textColor="#555555"
-                android:textSize="13sp" android:layout_marginTop="10dp" />
-            <EditText android:id="@+id/et_bt_away"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:enabled="false" android:hint="30" android:inputType="number"
-                android:padding="10dp" android:background="@drawable/btn_round_light"
-                android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="解锁信号阈值（dBm，-100~ -30，默认 -70；越接近0越近）" android:textColor="#555555"
-                android:textSize="13sp" android:layout_marginTop="10dp" />
-            <EditText android:id="@+id/et_bt_rssi"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="-70" android:inputType="numberSigned"
-                android:padding="10dp" android:background="@drawable/btn_round_light"
-                android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="上锁信号阈值（dBm，默认 -78；建议低于解锁阈值形成滞回，防临界抖动）" android:textColor="#555555"
-                android:textSize="13sp" android:layout_marginTop="10dp" />
-            <EditText android:id="@+id/et_bt_lock_rssi"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="-78" android:inputType="numberSigned"
-                android:padding="10dp" android:background="@drawable/btn_round_light"
-                android:textSize="14sp" android:layout_marginTop="6dp" android:maxLines="1" />
-
-            <CheckBox android:id="@+id/cb_bt_enable"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="启用 BLE 扫描自动控车" android:textSize="14sp"
-                android:layout_marginTop="8dp" />
-
-            <CheckBox android:id="@+id/cb_wear_enable"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="启用小米手环遥控（解锁/上锁）" android:textSize="14sp"
-                android:layout_marginTop="4dp" />
-            <TextView
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="需先安装手环快应用（同包名同签名），并在 Notify for Xiaomi 中上传 rpk。仅开放解锁/上锁，不支持着车。"
-                android:textColor="#888888" android:textSize="12sp"
-                android:layout_marginTop="2dp" />
-
-            <Button android:id="@+id/btn_wear_diag"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="手环互联诊断（红点排查）" android:textSize="13sp"
-                android:layout_marginTop="6dp"
-                android:backgroundTint="#6D4C41" android:textColor="#FFFFFF" />
-
-            <!-- v1.9.50：解锁/上锁提示音设置 -->
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="#E0E0E0" android:layout_marginTop="18dp" android:layout_marginBottom="12dp" />
-
-            <CheckBox android:id="@+id/cb_sound_enable"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="启用解锁/上锁提示音" android:textSize="14sp" />
-
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="解锁音效" android:textColor="#555555" android:textSize="13sp"
-                android:layout_marginTop="8dp" />
-            <Spinner android:id="@+id/sp_unlock_sound"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
-            <TextView android:id="@+id/tv_unlock_sound"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
-
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="上锁音效" android:textColor="#555555" android:textSize="13sp"
-                android:layout_marginTop="10dp" />
-            <Spinner android:id="@+id/sp_lock_sound"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
-            <TextView android:id="@+id/tv_lock_sound"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:layout_marginTop="8dp">
-                <Button android:id="@+id/btn_unlock_sound_test"
-                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:text="试听解锁" android:textSize="13sp"
-                    android:backgroundTint="#455A64" android:textColor="#FFFFFF" />
-                <Button android:id="@+id/btn_lock_sound_test"
-                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                    android:text="试听上锁" android:textSize="13sp"
-                    android:backgroundTint="#455A64" android:textColor="#FFFFFF"
-                    android:layout_marginLeft="8dp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="长按信号诊断文字可清空计数。"
+                    android:textColor="#999999" android:textSize="12sp" android:layout_marginTop="6dp" />
             </LinearLayout>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="选「自定义音频…」可从手机里挑一个音频文件（mp3/wav 等），解锁与上锁可各自设置。低电压报警固定两声，不受此开关影响。"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
 
-            <Button android:id="@+id/btn_accessibility"
+            <!-- ==================== 二级页：手环遥控 ==================== -->
+            <LinearLayout android:id="@+id/page_wear"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="无障碍保活：点击去授权（可选）" android:textSize="13sp"
-                android:layout_marginTop="6dp"
-                android:backgroundTint="#607080" android:textColor="#FFFFFF" />
+                android:orientation="vertical" android:visibility="gone"
+                android:padding="18dp">
 
-            <TextView
+                <CheckBox android:id="@+id/cb_wear_enable"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="启用小米手环遥控（解锁/上锁）" android:textSize="14sp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="需先安装手环快应用（同包名同签名），并在 Notify for Xiaomi 中上传 rpk。仅开放解锁/上锁，不支持着车。"
+                    android:textColor="#888888" android:textSize="12sp"
+                    android:layout_marginTop="4dp" />
+
+                <Button android:id="@+id/btn_wear_diag"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="手环互联诊断（红点排查）" android:textSize="13sp"
+                    android:layout_marginTop="12dp"
+                    android:backgroundTint="#6D4C41" android:textColor="#FFFFFF" />
+
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="诊断结果在「保活与日志 → 查看指令日志」里查看。"
+                    android:textColor="#999999" android:textSize="12sp" android:layout_marginTop="6dp" />
+            </LinearLayout>
+
+            <!-- ==================== 二级页：提示音 ==================== -->
+            <LinearLayout android:id="@+id/page_sound"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="可选：开启后仅用于保活（不读屏幕、不模拟点击）。部分机型后台会杀进程，开启可减少被回收；不想授权可忽略，前台服务本身已在保活。"
-                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
+                android:orientation="vertical" android:visibility="gone"
+                android:padding="18dp">
 
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+                <CheckBox android:id="@+id/cb_sound_enable"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="启用解锁/上锁提示音" android:textSize="14sp" />
 
-            <Button android:id="@+id/btn_refresh"
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="解锁音效" android:textColor="#555555" android:textSize="13sp"
+                    android:layout_marginTop="8dp" />
+                <Spinner android:id="@+id/sp_unlock_sound"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
+                <TextView android:id="@+id/tv_unlock_sound"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="上锁音效" android:textColor="#555555" android:textSize="13sp"
+                    android:layout_marginTop="10dp" />
+                <Spinner android:id="@+id/sp_lock_sound"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
+                <TextView android:id="@+id/tv_lock_sound"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginTop="8dp">
+                    <Button android:id="@+id/btn_unlock_sound_test"
+                        android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                        android:text="试听解锁" android:textSize="13sp"
+                        android:backgroundTint="#455A64" android:textColor="#FFFFFF" />
+                    <Button android:id="@+id/btn_lock_sound_test"
+                        android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                        android:text="试听上锁" android:textSize="13sp"
+                        android:backgroundTint="#455A64" android:textColor="#FFFFFF"
+                        android:layout_marginLeft="8dp" />
+                </LinearLayout>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="选「自定义音频…」可从手机里挑一个音频文件（mp3/wav 等），解锁与上锁可各自设置。低电压报警固定两声，不受此开关影响。"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
+            </LinearLayout>
+
+            <!-- ==================== 二级页：保活与日志 ==================== -->
+            <LinearLayout android:id="@+id/page_advanced"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="刷新车辆状态" android:textSize="15sp"
-                android:backgroundTint="#8A1A2B" android:textColor="#FFFFFF" />
+                android:orientation="vertical" android:visibility="gone"
+                android:padding="18dp">
 
-            <Button android:id="@+id/btn_logout"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="退出登录 / 清除凭证" android:textSize="14sp" android:layout_marginTop="10dp"
-                android:backgroundTint="#777777" android:textColor="#FFFFFF" />
+                <Button android:id="@+id/btn_accessibility"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="无障碍保活：点击去授权（可选）" android:textSize="13sp"
+                    android:backgroundTint="#607080" android:textColor="#FFFFFF" />
 
-            <TextView
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="凭证仅保存在本机，不会上传。请仅在自己的账号与车辆上使用。"
-                android:textColor="#999999" android:textSize="12sp" android:paddingTop="18dp" />
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="可选：开启后仅用于保活（不读屏幕、不模拟点击）。部分机型后台会杀进程，开启可减少被回收；不想授权可忽略，前台服务本身已在保活。"
+                    android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="#E0E0E0" android:layout_marginTop="20dp" android:layout_marginBottom="18dp" />
+
+                <Button android:id="@+id/btn_view_log"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="查看指令日志" android:textSize="15sp"
+                    android:backgroundTint="#2E7D6B" android:textColor="#FFFFFF" />
+
+                <TextView
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="记录每次解锁/上锁指令、失败原因与互联诊断结果（最近 200 条）。"
+                    android:textColor="#999999" android:textSize="12sp" android:layout_marginTop="8dp" />
+            </LinearLayout>
+
         </LinearLayout>
-    </LinearLayout>
     </ScrollView>
-
-    <!-- 底部固定操作条：指令日志入口 -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="10dp"
-        android:background="#FFFFFF">
-
-        <Button android:id="@+id/btn_view_log"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="查看指令日志" android:textSize="15sp"
-            android:backgroundTint="#2E7D6B" android:textColor="#FFFFFF" />
-    </LinearLayout>
 </LinearLayout>

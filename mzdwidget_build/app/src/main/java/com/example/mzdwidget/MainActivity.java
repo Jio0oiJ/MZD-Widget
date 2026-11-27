@@ -366,6 +366,68 @@ public class MainActivity extends Activity {
         if (Prefs.wearEnabled(this)) startWearRelayService();
 
         setupSound();
+        setupNavigation();
+    }
+
+    /* ==================== v1.9.51：首页 → 二级设置页导航 ==================== */
+    private int currentPageId = 0; // 0 = 首页
+    private int[] navPageIds;
+    private ScrollView navScroll;
+    private View navHome, navBar;
+
+    private void setupNavigation() {
+        navScroll = findViewById(R.id.main_scroll);
+        navHome = findViewById(R.id.page_home);
+        navBar = findViewById(R.id.nav_bar);
+        navPageIds = new int[]{
+                R.id.page_appearance, R.id.page_account, R.id.page_ble,
+                R.id.page_wear, R.id.page_sound, R.id.page_advanced
+        };
+        int[] entryIds = {
+                R.id.btn_go_appearance, R.id.btn_go_account, R.id.btn_go_ble,
+                R.id.btn_go_wear, R.id.btn_go_sound, R.id.btn_go_advanced
+        };
+        String[] titles = {
+                "桌面组件外观", "账号与凭证", "BLE 自动控车",
+                "手环遥控", "提示音", "保活与日志"
+        };
+        for (int i = 0; i < entryIds.length; i++) {
+            final int idx = i;
+            findViewById(entryIds[i]).setOnClickListener(v -> openPage(pageIds(idx), titles[idx]));
+        }
+        findViewById(R.id.btn_nav_back).setOnClickListener(v -> goHome());
+    }
+
+    private int pageIds(int idx) {
+        return navPageIds[idx];
+    }
+
+    private void openPage(int pageId, String title) {
+        navHome.setVisibility(View.GONE);
+        for (int id : navPageIds) {
+            findViewById(id).setVisibility(id == pageId ? View.VISIBLE : View.GONE);
+        }
+        ((TextView) findViewById(R.id.tv_nav_title)).setText(title);
+        navBar.setVisibility(View.VISIBLE);
+        currentPageId = pageId;
+        navScroll.scrollTo(0, 0);
+    }
+
+    private void goHome() {
+        for (int id : navPageIds) findViewById(id).setVisibility(View.GONE);
+        navHome.setVisibility(View.VISIBLE);
+        navBar.setVisibility(View.GONE);
+        currentPageId = 0;
+        navScroll.scrollTo(0, 0);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (currentPageId != 0) {
+            goHome();
+            return;
+        }
+        super.onBackPressed();
     }
 
     /* ==================== v1.9.50：解锁/上锁提示音设置 ==================== */
