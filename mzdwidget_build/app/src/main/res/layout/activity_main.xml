@@ -309,6 +309,50 @@
                 android:layout_marginTop="6dp"
                 android:backgroundTint="#6D4C41" android:textColor="#FFFFFF" />
 
+            <!-- v1.9.50：解锁/上锁提示音设置 -->
+            <View android:layout_width="match_parent" android:layout_height="1dp"
+                android:background="#E0E0E0" android:layout_marginTop="18dp" android:layout_marginBottom="12dp" />
+
+            <CheckBox android:id="@+id/cb_sound_enable"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="启用解锁/上锁提示音" android:textSize="14sp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="解锁音效" android:textColor="#555555" android:textSize="13sp"
+                android:layout_marginTop="8dp" />
+            <Spinner android:id="@+id/sp_unlock_sound"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
+            <TextView android:id="@+id/tv_unlock_sound"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="上锁音效" android:textColor="#555555" android:textSize="13sp"
+                android:layout_marginTop="10dp" />
+            <Spinner android:id="@+id/sp_lock_sound"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:background="@drawable/btn_round_light" android:layout_marginTop="4dp" />
+            <TextView android:id="@+id/tv_lock_sound"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="2dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginTop="8dp">
+                <Button android:id="@+id/btn_unlock_sound_test"
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="试听解锁" android:textSize="13sp"
+                    android:backgroundTint="#455A64" android:textColor="#FFFFFF" />
+                <Button android:id="@+id/btn_lock_sound_test"
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="试听上锁" android:textSize="13sp"
+                    android:backgroundTint="#455A64" android:textColor="#FFFFFF"
+                    android:layout_marginLeft="8dp" />
+            </LinearLayout>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="选「自定义音频…」可从手机里挑一个音频文件（mp3/wav 等），解锁与上锁可各自设置。低电压报警固定两声，不受此开关影响。"
+                android:textColor="#888888" android:textSize="12sp" android:layout_marginTop="4dp" />
+
             <Button android:id="@+id/btn_accessibility"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="无障碍保活：点击去授权（可选）" android:textSize="13sp"

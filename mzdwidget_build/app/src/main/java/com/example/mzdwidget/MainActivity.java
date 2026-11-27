@@ -33,7 +33,9 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.net.Uri;
 import android.graphics.Typeface;
 import android.view.ViewGroup;
 import android.util.Log;
@@ -49,7 +51,11 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MZDMain";
     private static final int REQ_BT_PERMISSION = 4401;
+    private static final int REQ_PICK_UNLOCK_SOUND = 4410; // v1.9.50：选解锁音频文件
+    private static final int REQ_PICK_LOCK_SOUND = 4411;   // v1.9.50：选上锁音频文件
     private static final long BLE_PICK_MS = 12000L; // 选设备时扫描时长
+    /** v1.9.50：Spinner 最后一项为「自定义音频…」，点它触发文件选择器 */
+    private static final String CUSTOM_SOUND = "自定义音频…";
 
     /** 常用预设色，点击即写入对应颜色输入框 */
     private static final int[] PRESET_COLORS = {
@@ -71,7 +77,10 @@ public class MainActivity extends Activity {
             logMsg("【手环诊断】" + (text == null ? "无结果" : text));
         }
     };
-    private CheckBox cbBtEnable, cbWearEnable;
+    private CheckBox cbBtEnable, cbWearEnable, cbSoundEnable;
+    private Spinner spUnlockSound, spLockSound;
+    private TextView tvUnlockSound, tvLockSound;
+    private boolean soundSpinnerInit = false; // 程序化 setSelection 时屏蔽 onItemSelected 回调
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     /** 权限未授予时把开关回弹到 false，避免 setChecked(false) 递归触发监听器误停服务 */
@@ -355,6 +364,128 @@ public class MainActivity extends Activity {
             }
         });
         if (Prefs.wearEnabled(this)) startWearRelayService();
+
+        setupSound();
+    }
+
+    /* ==================== v1.9.50：解锁/上锁提示音设置 ==================== */
+
+    private void setupSound() {
+        cbSoundEnable = findViewById(R.id.cb_sound_enable);
+        spUnlockSound = findViewById(R.id.sp_unlock_sound);
+        spLockSound = findViewById(R.id.sp_lock_sound);
+        tvUnlockSound = findViewById(R.id.tv_unlock_sound);
+        tvLockSound = findViewById(R.id.tv_lock_sound);
+
+        // Spinner 选项 = 内置音效名 + 末项「自定义音频…」
+        final String[] items = new String[BeepHelper.builtinCount() + 1];
+        for (int i = 0; i < BeepHelper.builtinCount(); i++) items[i] = BeepHelper.builtinName(i);
+        items[items.length - 1] = CUSTOM_SOUND;
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, items);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spUnlockSound.setAdapter(adapter);
+        spLockSound.setAdapter(adapter);
+
+        cbSoundEnable.setChecked(Prefs.soundEnabled(this));
+        cbSoundEnable.setOnCheckedChangeListener((v, checked) -> {
+            Prefs.setSoundEnabled(this, checked);
+            logMsg(checked ? "解锁/上锁提示音已开启" : "解锁/上锁提示音已关闭（低电压报警仍会响）");
+        });
+
+        bindSoundSpinner(spUnlockSound, tvUnlockSound, true);
+        bindSoundSpinner(spLockSound, tvLockSound, false);
+
+        findViewById(R.id.btn_unlock_sound_test).setOnClickListener(v ->
+                BeepHelper.preview(this, Prefs.unlockSound(this)));
+        findViewById(R.id.btn_lock_sound_test).setOnClickListener(v ->
+                BeepHelper.preview(this, Prefs.lockSound(this)));
+    }
+
+    private void bindSoundSpinner(Spinner sp, TextView tv, boolean isUnlock) {
+        String v = isUnlock ? Prefs.unlockSound(this) : Prefs.lockSound(this);
+        refreshSoundLabel(tv, v);
+        int sel = soundPosition(v);
+        soundSpinnerInit = true;
+        sp.setSelection(sel, false);
+        soundSpinnerInit = false;
+        sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                if (soundSpinnerInit) return;
+                int last = BeepHelper.builtinCount();
+                if (pos == last) {
+                    // 选「自定义音频…」：打开系统文件选择器；取消则回退到原值
+                    pickSoundFile(isUnlock ? REQ_PICK_UNLOCK_SOUND : REQ_PICK_LOCK_SOUND);
+                    soundSpinnerInit = true;
+                    sp.setSelection(soundPosition(isUnlock ? Prefs.unlockSound(MainActivity.this)
+                            : Prefs.lockSound(MainActivity.this)), false);
+                    soundSpinnerInit = false;
+                    return;
+                }
+                String val = String.valueOf(pos);
+                if (isUnlock) Prefs.setUnlockSound(MainActivity.this, val);
+                else Prefs.setLockSound(MainActivity.this, val);
+                refreshSoundLabel(tv, val);
+                logMsg((isUnlock ? "解锁" : "上锁") + "音效已设为「" + BeepHelper.builtinName(pos) + "」");
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+    }
+
+    private int soundPosition(String v) {
+        try {
+            int id = Integer.parseInt(v.trim());
+            if (id >= 0 && id < BeepHelper.builtinCount()) return id;
+        } catch (NumberFormatException ignored) { }
+        return BeepHelper.builtinCount(); // 自定义 → 末项
+    }
+
+    private void refreshSoundLabel(TextView tv, String v) {
+        tv.setText("当前：" + BeepHelper.soundLabel(v));
+    }
+
+    private void pickSoundFile(int reqCode) {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("audio/*");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(i, reqCode);
+        } catch (Exception e) {
+            logMsg("无法打开音频文件选择器：" + e.getMessage());
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int reqCode, int resultCode, Intent data) {
+        super.onActivityResult(reqCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        boolean unlock = (reqCode == REQ_PICK_UNLOCK_SOUND);
+        if (!unlock && reqCode != REQ_PICK_LOCK_SOUND) return;
+        try {
+            // 持久化读取授权：重启手机/App 后仍能播放这个文件
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception e) {
+            logMsg("音频文件授权失败，重启后可能需重新选择：" + e.getMessage());
+        }
+        String val = uri.toString();
+        if (unlock) {
+            Prefs.setUnlockSound(this, val);
+            refreshSoundLabel(tvUnlockSound, val);
+            soundSpinnerInit = true;
+            spUnlockSound.setSelection(BeepHelper.builtinCount(), false);
+            soundSpinnerInit = false;
+        } else {
+            Prefs.setLockSound(this, val);
+            refreshSoundLabel(tvLockSound, val);
+            soundSpinnerInit = true;
+            spLockSound.setSelection(BeepHelper.builtinCount(), false);
+            soundSpinnerInit = false;
+        }
+        logMsg((unlock ? "解锁" : "上锁") + "音效已设为自定义音频：" + BeepHelper.soundLabel(val));
+        BeepHelper.preview(this, val); // 选完即试听
     }
 
     /* ==================== 桌面组件外观设置 ==================== */

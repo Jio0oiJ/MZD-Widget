@@ -19,6 +19,9 @@ public final class Prefs {
     private static final String K_BT_RSSI = "bt_rssi_threshold"; // BLE 解锁信号阈值（dBm，负整数）
     private static final String K_BT_LOCK_RSSI = "bt_lock_rssi_threshold"; // v1.9.22 BLE 上锁信号阈值（dBm，负整数，独立滞回）
     private static final String K_BT_UNLOCK_LATCH = "bt_unlock_latch"; // 本次靠近是否已解锁过
+    private static final String K_SOUND_ENABLED = "sound_enabled";     // v1.9.50：提示音总开关（默认开）
+    private static final String K_UNLOCK_SOUND = "unlock_sound";       // v1.9.50：解锁音效（"0".."5" 内置 / content URI 自定义）
+    private static final String K_LOCK_SOUND = "lock_sound";           // v1.9.50：上锁音效
 
     // 外观设置（独立 prefs，清凭证时不影响）
     private static final String K_BRAND_TEXT = "brand_text";
@@ -117,6 +120,28 @@ public final class Prefs {
         btPrefs(c).edit().putBoolean(K_WEAR_ENABLED, enabled).apply();
     }
     public static boolean wearEnabled(Context c) { return btPrefs(c).getBoolean(K_WEAR_ENABLED, false); }
+
+    /* ===== v1.9.50：解锁/上锁提示音设置（独立存储，清凭证不重置；低电压报警不受影响） ===== */
+    /** 总开关默认开，保持 v1.9.49 之前"解锁一声/上锁两声"的既有行为。 */
+    public static boolean soundEnabled(Context c) { return btPrefs(c).getBoolean(K_SOUND_ENABLED, true); }
+    public static void setSoundEnabled(Context c, boolean enabled) {
+        btPrefs(c).edit().putBoolean(K_SOUND_ENABLED, enabled).apply();
+    }
+    /** 默认解锁=内置经典一声("0")、上锁=内置经典两声("1")。自定义值为 content URI 字符串。 */
+    public static String unlockSound(Context c) {
+        String s = btPrefs(c).getString(K_UNLOCK_SOUND, "0");
+        return (s == null || s.isEmpty()) ? "0" : s;
+    }
+    public static String lockSound(Context c) {
+        String s = btPrefs(c).getString(K_LOCK_SOUND, "1");
+        return (s == null || s.isEmpty()) ? "1" : s;
+    }
+    public static void setUnlockSound(Context c, String v) {
+        btPrefs(c).edit().putString(K_UNLOCK_SOUND, v == null ? "0" : v).apply();
+    }
+    public static void setLockSound(Context c, String v) {
+        btPrefs(c).edit().putString(K_LOCK_SOUND, v == null ? "1" : v).apply();
+    }
 
     /** BLE 扫描：连续多少秒扫不到目标设备即判定离开，默认 30 秒 */
     public static int btAwaySec(Context c) { return btPrefs(c).getInt(K_BT_AWAY_SEC, 30); }

@@ -284,7 +284,7 @@ public final class CarStateCache {
                 if (stillValid) {
                     CtrlLog.w(TAG, "【低电压】快刷复核确认电瓶电压 " + alarmVoltage + "V < "
                             + LOW_VOLTAGE_THRESHOLD + "V：两声报警 + 弹出警示窗");
-                    BeepHelper.playLock();
+                    BeepHelper.playAlarm(); // v1.9.50：低电压报警固定两声，不受音效选择与开关影响
                     LowVoltageAlerter.show(alarmVoltage);
                 } else {
                     CtrlLog.i(TAG, "【低电压】报警播放前检测到切号，丢弃旧车电压报警");
